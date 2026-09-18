@@ -514,7 +514,7 @@ export default function PaymentCheckPage() {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-[440px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,860px)]">
         {/* 左列:提交区(账号/粘贴 + 线路) */}
         <div className="space-y-4">
       <Tabs value={tab} onValueChange={setTab} className="">
@@ -604,6 +604,7 @@ export default function PaymentCheckPage() {
         </div>
 
         {/* 右列:检测结果(常驻,并发实时) */}
+      </div>
         <div className="min-w-0">
       <Card>
         <CardHeader className="pb-2">
@@ -645,7 +646,7 @@ export default function PaymentCheckPage() {
             </div>
           )}
         </CardHeader>
-        <CardContent className="overflow-x-auto">
+        <CardContent>
           {!hasBatch || !(batch.data && "accounts" in batch.data) ? (
             <div className="text-muted-foreground flex flex-col items-center justify-center gap-2 py-12 text-sm">
               <CreditCard className="size-8 opacity-40" />
@@ -653,7 +654,7 @@ export default function PaymentCheckPage() {
               <p className="text-xs">检测结果会显示在这里:账号 / 状态 / 各线路金额与支付渠道 / 出口 IP</p>
             </div>
           ) : (
-<Table>
+            <Table className="w-full table-auto">
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-52">账号</TableHead>
@@ -758,7 +759,6 @@ export default function PaymentCheckPage() {
         </CardContent>
       </Card>
         </div>
-      </div>
     </div>
   )
 }
