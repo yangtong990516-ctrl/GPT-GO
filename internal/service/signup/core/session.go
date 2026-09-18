@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"gpt-go/internal/service/signup/humanize"
+
 	"github.com/sardanioss/httpcloak"
 )
 
@@ -308,6 +310,9 @@ func (s *Session) do(ctx context.Context, method, url, contentType string, body 
 			case <-time.After(s.backoff):
 			}
 		}
+		// 人类节奏(对齐 codex humanize.human_pause):每个请求前按 URL 插入对数正态
+		// 随机延迟。协议连发(零间隔)的时序特征会被风控识别为脚本——高并发下尤为致命。
+		humanize.Pause(nil, url)
 
 		req := &httpcloak.Request{
 			Method:  method,

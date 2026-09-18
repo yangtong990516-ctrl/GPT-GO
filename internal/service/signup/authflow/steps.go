@@ -6,6 +6,7 @@
 package authflow
 
 import (
+	"gpt-go/internal/service/signup/humanize"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -175,6 +176,9 @@ func (f *Flow) getSentinelToken(ctx context.Context, deviceID, flow string) (str
 	if f.solver == nil {
 		return "", fmt.Errorf("sentinel: Solver 未注入（P4 未接入）")
 	}
+	// 人类模拟(对齐 codex human_action_pause("challenge")):看到挑战框→等 SDK 运行
+	// 的认知停顿 0.8~2.4s,再求解提交,避免 challenge 秒解的非人时序特征。
+	humanize.ActionPause(nil, "challenge")
 	env := f.sentinelEnv(deviceID, flow)
 	res, err := f.solver.GetToken(ctx, env, sentinel.Flow(flow))
 	if err != nil {
@@ -344,6 +348,10 @@ func (f *Flow) sendOTP(ctx context.Context, referer string) error {
 // Step 7c: verify_otp（对齐 Python verify_otp）
 // ═══════════════════════════════════════════════════════════════════════════
 func (f *Flow) verifyOTP(ctx context.Context, code string) (map[string]any, error) {
+	// 人类模拟(对齐 codex verify_otp 的 human_action_pause("otp_input")):
+	// 收到验证码后停顿 2.5~8s(模拟切回页面+看清 6 位数字再输入)。否则秒取秒提交
+	// 的时序特征被风控识别为脚本,高并发下 OTP 被服务端作废 → wrong_email_otp_code。
+	humanize.ActionPause(nil, "otp_input")
 	payload, _ := json.Marshal(map[string]string{"code": code})
 	resp, err := f.boot.Session.Post(ctx,
 		"https://auth.openai.com/api/accounts/email-otp/validate",
