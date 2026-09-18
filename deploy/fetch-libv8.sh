@@ -25,11 +25,11 @@ TARGET_DIR="$MOD_DIR/deps/${GOOS}_${V8ARCH}"
 TARGET="$TARGET_DIR/libv8.a"
 
 if [[ -f "$TARGET" ]]; then
-  echo "[fetch-libv8] libv8.a 已存在(${GOOS}_${GOARCH}),跳过下载"
+  echo "[fetch-libv8] libv8.a 已存在(${GOOS}_${V8ARCH}),跳过下载"
   exit 0
 fi
 
-echo "[fetch-libv8] 下载 ${GOOS}_${GOARCH}/libv8.a(约 143MB)…"
+echo "[fetch-libv8] 下载 ${GOOS}_${V8ARCH}/libv8.a(约 143MB)…"
 # 模块 cache 只读,拷到临时目录 fetch 后再拷回。
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 cp -r "$MOD_DIR" "$TMP/v8go"
