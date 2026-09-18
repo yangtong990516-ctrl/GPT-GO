@@ -14,8 +14,14 @@ if [[ -z "$MOD_DIR" || ! -d "$MOD_DIR" ]]; then
   MOD_DIR="$(go list -f '{{.Dir}}' -m github.com/robomotionio/v8go)"
 fi
 
-GOOS="$(go env GOOS)"; GOARCH="$(go env GOARCH)"
-TARGET_DIR="$MOD_DIR/deps/${GOOS}_${GOARCH}"
+GOOS="$(go env GOOS)"
+# v8go deps 目录用 x86_64 而非 amd64(arm64 同名);做 Go→v8go 命名映射。
+case "$(go env GOARCH)" in
+  amd64) V8ARCH="x86_64" ;;
+  arm64) V8ARCH="arm64" ;;
+  *) V8ARCH="$(go env GOARCH)" ;;
+esac
+TARGET_DIR="$MOD_DIR/deps/${GOOS}_${V8ARCH}"
 TARGET="$TARGET_DIR/libv8.a"
 
 if [[ -f "$TARGET" ]]; then
@@ -31,6 +37,6 @@ chmod -R u+w "$TMP/v8go"
 ( cd "$TMP/v8go" && go run scripts/fetch-libv8.go )
 mkdir -p "$TARGET_DIR" 2>/dev/null || true
 chmod -R u+w "$TARGET_DIR" 2>/dev/null || true
-cp "$TMP/v8go/deps/${GOOS}_${GOARCH}/libv8.a" "$TARGET"
+cp "$TMP/v8go/deps/${GOOS}_${V8ARCH}/libv8.a" "$TARGET"
 chmod 0644 "$TARGET" 2>/dev/null || true
 echo "[fetch-libv8] 完成: $TARGET"
