@@ -107,6 +107,12 @@ function ImportDialog({
   const [raw, setRaw] = React.useState("")
   const importEmails = useImportEmails()
 
+  // 本次粘贴的非空行数(实时统计,与后端导入的行口径一致)。
+  const rawLineCount = React.useMemo(
+    () => raw.split("\n").filter((l) => l.trim() !== "").length,
+    [raw],
+  )
+
   const submit = () => {
     importEmails.mutate(raw, {
       onSuccess: (r) => {
@@ -131,11 +137,16 @@ function ImportDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
-          <Label htmlFor="raw">原始文本</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="raw">原始文本</Label>
+            <span className="text-xs text-muted-foreground">
+              本次粘贴 <span className="font-semibold text-foreground">{rawLineCount}</span> 条
+            </span>
+          </div>
           <Textarea
             id="raw"
             rows={12}
-            className="font-mono text-xs"
+            className="field-sizing-fixed h-64 resize-none overflow-y-auto font-mono text-xs"
             placeholder={"alice@example.com----pass\nbob@example.com|https://mail.example.com/bob"}
             value={raw}
             onChange={(e) => setRaw(e.target.value)}
