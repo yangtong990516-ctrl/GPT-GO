@@ -67,10 +67,11 @@ func TestCreateRunInjectsSettings(t *testing.T) {
 		MaxRegistrationsPerExitIP: 3,
 	}}
 	runner := &mockRunner{}
-	// newDialer 记录收到的 exitIPCap（验证 settings.MaxRegistrationsPerExitIP 传入）。
-	var gotCap int
-	h := NewHandler(settings, func(cap int) *signup.SessionDialer {
-		gotCap = cap
+	// newDialer 记录收到的 exitIPCap / maxRedial（验证 settings 注入）。
+	var gotCap, gotRedial int
+	h := NewHandler(settings, func(exitIPCap, maxRedial int) *signup.SessionDialer {
+		gotCap = exitIPCap
+		gotRedial = maxRedial
 		return nil // 测试不需要真拨号器
 	}, runner)
 	r := setupRouter(h)
@@ -93,6 +94,7 @@ func TestCreateRunInjectsSettings(t *testing.T) {
 	if gotCap != 3 {
 		t.Fatalf("newDialer 应收 exitIPCap=3（settings.MaxRegistrationsPerExitIP）, got %d", gotCap)
 	}
+	_ = gotRedial // maxRedial 来自 settings.ProxyRetryCount(此处未设,默认 0 也接受)
 	// 验证响应回显 applied（证明实时注入）。
 	if resp.Applied.Concurrency != 5 || resp.Applied.TaskTimeoutSeconds != 180 || resp.Applied.MaxRegistrationsPerExit != 3 {
 		t.Fatalf("applied 回显错误: %+v", resp.Applied)

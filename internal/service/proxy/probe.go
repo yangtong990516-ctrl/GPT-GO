@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"sync"
 	"strings"
 	"time"
 
@@ -250,31 +251,63 @@ func (e *probeIdentError) Error() string { return e.msg }
 
 // TestStoredProxies mirrors test_stored_proxies: probes eligible proxies and
 // aggregates the result. Failed/dirty proxies are recorded as failed.
-func (s *Service) TestStoredProxies(ctx context.Context, country, group *string, timeoutSeconds float64) (model.ProxyTestResult, error) {
+// concurrency 来自 ExecutionSettings.proxyCheckConcurrency(1-32);<1 时按 1(串行)。
+// 原为串行 for 循环,逐个 Probe 慢;改为带并发上限的 worker 池,结果写库各自独立。
+func (s *Service) TestStoredProxies(ctx context.Context, country, group *string, timeoutSeconds float64, concurrency int) (model.ProxyTestResult, error) {
 	docs, err := s.store.ProxyDocumentsForTest(ctx, deref(country), deref(group), nil)
 	if err != nil {
 		return model.ProxyTestResult{}, err
 	}
 
 	result := model.ProxyTestResult{Tested: len(docs)}
-	countries := map[string]int{}
-	var usable []*ProbeResult
-	for _, d := range docs {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if concurrency > len(docs) {
+		concurrency = len(docs)
+	}
+
+	var (
+		mu        sync.Mutex
+		usable    []*ProbeResult
+		countries = map[string]int{}
+	)
+	probeOne := func(d model.ProxyDocument) {
 		scheme := model.NormalizeProxyScheme(d.Scheme)
 		proxyURL := model.ProxyURL(d.Host, d.Port, d.Username, d.Password, scheme)
 		probe, perr := s.prober.Probe(ctx, proxyURL, timeoutSeconds)
 		if perr != nil || probe == nil {
 			_ = s.store.RecordProxyTest(ctx, d.ID, false, nil, "", "", nil)
-			continue
+			return
 		}
 		if probe.Purity != "clean" {
 			_ = s.store.RecordProxyTest(ctx, d.ID, false, nil, "", "", nil)
-			continue
+			return
 		}
 		_ = s.store.RecordProxyTest(ctx, d.ID, true, intPtr(probe.LatencyMs), probe.Country, probe.TimezoneID, probe.TimezoneOffsetSec)
+		mu.Lock()
 		usable = append(usable, probe)
 		countries[probe.Country]++
+		mu.Unlock()
 	}
+
+	// worker 池:concurrency 个 goroutine 消费 docs 通道。
+	jobs := make(chan model.ProxyDocument)
+	var wg sync.WaitGroup
+	for w := 0; w < concurrency; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for d := range jobs {
+				probeOne(d)
+			}
+		}()
+	}
+	for _, d := range docs {
+		jobs <- d
+	}
+	close(jobs)
+	wg.Wait()
 
 	result.Available = len(usable)
 	result.Failed = len(docs) - len(usable)

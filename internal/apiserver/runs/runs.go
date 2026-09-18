@@ -46,7 +46,7 @@ type Handler struct {
 	// settings 读执行参数（A 方案：每次发起现读）。
 	settings SettingsGetter
 	// newDialer 按 exitIPCap 现场造拨号器（每批一个干净 registry）。
-	newDialer func(exitIPCap int) *signup.SessionDialer
+	newDialer func(exitIPCap, maxRedial int) *signup.SessionDialer
 	// runner 执行批量注册（signup.Service）。
 	runner BatchRunner
 	// registry 进程内批次进度注册表（内存实时维护，见 signup.RunRegistry）。
@@ -70,7 +70,7 @@ type RunStore interface {
 //	settings   ExecutionSettings 读取器（settingsSvc）
 //	newDialer  按 exitIPCap 造拨号器（装配层注入，内部 signup.NewCDNProber）
 //	runner     批量注册执行器（装配好的 signup.Service）
-func NewHandler(settings SettingsGetter, newDialer func(exitIPCap int) *signup.SessionDialer, runner BatchRunner) *Handler {
+func NewHandler(settings SettingsGetter, newDialer func(exitIPCap, maxRedial int) *signup.SessionDialer, runner BatchRunner) *Handler {
 	return &Handler{settings: settings, newDialer: newDialer, runner: runner}
 }
 
@@ -173,7 +173,7 @@ func (h *Handler) createRun(c *gin.Context) {
 	// 拨号器：按 settings.maxRegistrationsPerExitIp 现场造（每批干净 registry）。
 	var dialer *signup.SessionDialer
 	if h.newDialer != nil {
-		dialer = h.newDialer(st.MaxRegistrationsPerExitIP)
+		dialer = h.newDialer(st.MaxRegistrationsPerExitIP, st.ProxyRetryCount)
 	}
 
 	// runID:缺省/冲突时追加随机短后缀 —— 防「秒级时间戳撞名」或「用户显式传相同
@@ -216,6 +216,7 @@ func (h *Handler) createRun(c *gin.Context) {
 			Dialer:             dialer,                // ← settings 注入（出口IP上限）
 			Log:                agg,                   // ← 聚合日志器(service 高频事件被汇总,防刷屏)
 			Step:               nil,                   // 下方统一设为 agg.StepLogger()
+			EnableRegistrationSecurity: st.EnableRegistrationSecurity, // ← settings 注入(密码+2FA 合一开关)
 		},
 		Count:       req.Count,
 		Concurrency: st.Concurrency, // ← settings 注入（并发数）

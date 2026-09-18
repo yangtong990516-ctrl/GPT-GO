@@ -95,6 +95,11 @@ type RunParams struct {
 	// ctx，超时则取消（对齐 ExecutionSettings.taskTimeoutSeconds；0 = 不限）。
 	TaskTimeoutSeconds int
 
+	// EnableRegistrationSecurity 密码+2FA 合一开关（对齐 ExecutionSettings.enableRegistrationSecurity）。
+	// false(默认):纯 OTP 注册——不生成密码、不设密码、不绑 2FA、落库不含 password/totp。
+	// true:注册成功后尝试设密码(若服务端走密码分支)并自动绑 2FA(TOTP),落库含两者。
+	EnableRegistrationSecurity bool
+
 	// Dialer 可选：本批共享的会话型拨号器（按 settings.maxRegistrationsPerExitIp
 	// 构造 exitIPCap）。A 方案下由 runs 触发点按 settings 现场 new 一个传入——
 	// 每批一个干净的 exitIPRegistry（对齐「批次内出口 IP 去重」），且并发安全
@@ -199,7 +204,10 @@ func (s *Service) Run(ctx context.Context, params RunParams) (*RegistrationResul
 
 	// 3c) 跑 AuthFlow（密码由 service 层生成，便于落盘回调前确定）。
 	log.Emit(LogInfo, "protocol_started", "开始协议注册状态机", reserved.Email, nil)
-	password := generatePassword()
+	password := ""
+	if params.EnableRegistrationSecurity {
+		password = generatePassword()
+	}
 	authRes, err := s.flowRunner(ctx, FlowRequest{
 		ProxyURL:   dial.ProxyURL,
 		EgressIP:   dial.EgressIP,

@@ -65,10 +65,7 @@ func (s *SettingsStore) Save(in model.ExecutionSettingsInput) (model.ExecutionSe
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	out := model.ExecutionSettings{
 		SchemaVersion:               2,
-		RequireRegistrationPassword: in.RequireRegistrationPassword,
-		EnableRegistrationTotp:      in.EnableRegistrationTotp,
-		RequireTrialOnCheck:         in.RequireTrialOnCheck,
-		AutoMultiCountryProbe:       in.AutoMultiCountryProbe,
+		EnableRegistrationSecurity:  in.EnableRegistrationSecurity,
 		RegistrationMode:            "protocol",
 		ProxyRetryCount:             in.ProxyRetryCount,
 		ProxyCheckConcurrency:       in.ProxyCheckConcurrency,
@@ -149,10 +146,7 @@ func migrateSettings(payload map[string]any, path string) (model.ExecutionSettin
 		}
 		out := model.DefaultExecutionSettings()
 		out.UpdatedAt = nil
-		out.RequireRegistrationPassword = boolField(payload, "requireRegistrationPassword", out.RequireRegistrationPassword)
-		out.EnableRegistrationTotp = boolField(payload, "enableRegistrationTotp", out.EnableRegistrationTotp)
-		out.RequireTrialOnCheck = boolField(payload, "requireTrialOnCheck", out.RequireTrialOnCheck)
-		out.AutoMultiCountryProbe = boolField(payload, "autoMultiCountryProbe", out.AutoMultiCountryProbe)
+		out.EnableRegistrationSecurity = boolField(payload, "enableRegistrationSecurity", out.EnableRegistrationSecurity)
 		out.RegistrationMode = "protocol"
 		out.ProxyRetryCount = intField(payload, "proxyRetryCount", out.ProxyRetryCount)
 		out.ProxyCheckConcurrency = intField(payload, "proxyCheckConcurrency", out.ProxyCheckConcurrency)

@@ -34,10 +34,7 @@ func TestSettingsDefault(t *testing.T) {
 func TestSettingsSaveLoadRoundTrip(t *testing.T) {
 	s := NewSettingsStore(filepath.Join(t.TempDir(), "settings.json"))
 	in := model.ExecutionSettingsInput{
-		RequireRegistrationPassword: true,
-		EnableRegistrationTotp:      false,
-		RequireTrialOnCheck:         true,
-		AutoMultiCountryProbe:       true,
+		EnableRegistrationSecurity:  true,
 		RegistrationMode:            "protocol",
 		ProxyRetryCount:             3,
 		ProxyCheckConcurrency:       20,
@@ -53,11 +50,8 @@ func TestSettingsSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !got.RequireTrialOnCheck {
-		t.Errorf("requireTrialOnCheck = false, want true (Python dropped this field)")
-	}
-	if !got.AutoMultiCountryProbe {
-		t.Errorf("autoMultiCountryProbe = false, want true")
+	if !got.EnableRegistrationSecurity {
+		t.Errorf("enableRegistrationSecurity = false, want true")
 	}
 	if got.ProxyRetryCount != 3 || got.ProxyCheckConcurrency != 20 || got.MaxRegistrationsPerExitIP != 5 || got.Concurrency != 4 || got.TaskTimeoutSeconds != 120 {
 		t.Errorf("numeric fields not round-tripped: %+v", got)
@@ -88,7 +82,7 @@ func TestSettingsMigrateV1(t *testing.T) {
 	if got.Concurrency != 5 || got.TaskTimeoutSeconds != 300 {
 		t.Errorf("v1 migration = %+v, want concurrency=5 timeout=300", got)
 	}
-	if got.RegistrationMode != "protocol" || got.ProxyRetryCount != 1 {
+	if got.RegistrationMode != "protocol" || got.ProxyRetryCount != 4 {
 		t.Errorf("v1 migration defaults wrong: %+v", got)
 	}
 }
@@ -105,13 +99,13 @@ func TestSettingsMigrateV2DropsBrowser(t *testing.T) {
 		"proxyRetryCount":             2,
 		"proxyCheckConcurrency":       24,
 		"maxRegistrationsPerExitIp":   3,
-		"requireRegistrationPassword": true,
-		"enableRegistrationTotp":      false,
-		"requireTrialOnCheck":         true,
-		"autoMultiCountryProbe":       true,
+		"enableRegistrationSecurity":  true,
 		"registrationMode":            "browser", // must be forced to protocol
 		"browserProvider":             "ant",     // legacy field dropped
 		"headless":                    true,
+		// 旧死配置字段(requireRegistrationPassword 等)已被移除,迁移时忽略
+		"requireRegistrationPassword": true,
+		"enableRegistrationTotp":      false,
 	}
 	raw, _ := json.Marshal(payload)
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
@@ -128,8 +122,8 @@ func TestSettingsMigrateV2DropsBrowser(t *testing.T) {
 	if got.Concurrency != 6 || got.ProxyRetryCount != 2 {
 		t.Errorf("v2 fields wrong: %+v", got)
 	}
-	if !got.RequireTrialOnCheck || !got.AutoMultiCountryProbe {
-		t.Errorf("v2 requireTrialOnCheck/autoMultiCountryProbe not preserved: %+v", got)
+	if !got.EnableRegistrationSecurity {
+		t.Errorf("v2 enableRegistrationSecurity not preserved: %+v", got)
 	}
 }
 

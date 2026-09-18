@@ -349,10 +349,7 @@ export interface SentinelVersionInfo {
 
 export interface ExecutionSettings {
   schemaVersion: number
-  requireRegistrationPassword: boolean
-  enableRegistrationTotp: boolean
-  requireTrialOnCheck: boolean
-  autoMultiCountryProbe: boolean
+  enableRegistrationSecurity: boolean
   registrationMode: string
   proxyRetryCount: number
   proxyCheckConcurrency: number

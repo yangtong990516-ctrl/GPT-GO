@@ -35,12 +35,9 @@ function ExecutionSettingsCard() {
   const settings = useExecutionSettings()
   const save = useSaveExecutionSettings()
   const [form, setForm] = React.useState({
-    requireRegistrationPassword: false,
-    enableRegistrationTotp: true,
-    requireTrialOnCheck: false,
-    autoMultiCountryProbe: false,
+    enableRegistrationSecurity: false,
     registrationMode: "protocol",
-    proxyRetryCount: 1,
+    proxyRetryCount: 4,
     proxyCheckConcurrency: 16,
     maxRegistrationsPerExitIp: 0,
     concurrency: 2,
@@ -51,10 +48,7 @@ function ExecutionSettingsCard() {
     if (settings.data) {
       const d = settings.data
       setForm({
-        requireRegistrationPassword: d.requireRegistrationPassword,
-        enableRegistrationTotp: d.enableRegistrationTotp,
-        requireTrialOnCheck: d.requireTrialOnCheck,
-        autoMultiCountryProbe: d.autoMultiCountryProbe,
+        enableRegistrationSecurity: d.enableRegistrationSecurity,
         registrationMode: d.registrationMode,
         proxyRetryCount: d.proxyRetryCount,
         proxyCheckConcurrency: d.proxyCheckConcurrency,
@@ -87,46 +81,25 @@ function ExecutionSettingsCard() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <Label>注册必须设置密码</Label>
-              <p className="text-muted-foreground text-xs">关闭时允许无密码注册流程</p>
+              <Label>注册时设置密码 + 绑定 2FA</Label>
+              <p className="text-muted-foreground text-xs">
+                开启后注册成功自动设密码并绑 TOTP（多耗一封邮箱 OTP）；关闭则纯 OTP 注册，不生成密码、不绑 2FA
+              </p>
             </div>
             <Switch
-              checked={form.requireRegistrationPassword}
-              onCheckedChange={(v) => setForm({ ...form, requireRegistrationPassword: v })}
+              checked={form.enableRegistrationSecurity}
+              onCheckedChange={(v) => setForm({ ...form, enableRegistrationSecurity: v })}
             />
           </div>
           <Separator />
           <div className="flex items-center justify-between">
             <div>
-              <Label>注册时启用 TOTP 2FA</Label>
-              <p className="text-muted-foreground text-xs">为每个新账号自动绑定 2FA</p>
+              <Label>注册模式</Label>
+              <p className="text-muted-foreground text-xs">当前仅支持协议注册（protocol）</p>
             </div>
-            <Switch
-              checked={form.enableRegistrationTotp}
-              onCheckedChange={(v) => setForm({ ...form, enableRegistrationTotp: v })}
-            />
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>检测时必须含试用资格</Label>
-              <p className="text-muted-foreground text-xs">无试用资格的账号视为检测失败</p>
-            </div>
-            <Switch
-              checked={form.requireTrialOnCheck}
-              onCheckedChange={(v) => setForm({ ...form, requireTrialOnCheck: v })}
-            />
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>自动多国探测</Label>
-              <p className="text-muted-foreground text-xs">自动执行多国试用资格扫描</p>
-            </div>
-            <Switch
-              checked={form.autoMultiCountryProbe}
-              onCheckedChange={(v) => setForm({ ...form, autoMultiCountryProbe: v })}
-            />
+            <Badge variant="secondary" className="font-mono text-xs">
+              {form.registrationMode}
+            </Badge>
           </div>
         </div>
 

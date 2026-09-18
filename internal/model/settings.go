@@ -6,10 +6,7 @@ package model
 // ExecutionSettingsInput mirrors settings_store.ExecutionSettingsInput (the PUT
 // body). Field names stay camelCase to match the persisted JSON and frontend.
 type ExecutionSettingsInput struct {
-	RequireRegistrationPassword bool   `json:"requireRegistrationPassword"`
-	EnableRegistrationTotp      bool   `json:"enableRegistrationTotp"`
-	RequireTrialOnCheck         bool   `json:"requireTrialOnCheck"`
-	AutoMultiCountryProbe       bool   `json:"autoMultiCountryProbe"`
+	EnableRegistrationSecurity  bool   `json:"enableRegistrationSecurity"`
 	RegistrationMode            string `json:"registrationMode"`
 	ProxyRetryCount             int    `json:"proxyRetryCount"`
 	ProxyCheckConcurrency       int    `json:"proxyCheckConcurrency"`
@@ -22,10 +19,7 @@ type ExecutionSettingsInput struct {
 // plus updatedAt and schemaVersion).
 type ExecutionSettings struct {
 	SchemaVersion               int     `json:"schemaVersion"`
-	RequireRegistrationPassword bool    `json:"requireRegistrationPassword"`
-	EnableRegistrationTotp      bool    `json:"enableRegistrationTotp"`
-	RequireTrialOnCheck         bool    `json:"requireTrialOnCheck"`
-	AutoMultiCountryProbe       bool    `json:"autoMultiCountryProbe"`
+	EnableRegistrationSecurity  bool    `json:"enableRegistrationSecurity"`
 	RegistrationMode            string  `json:"registrationMode"`
 	ProxyRetryCount             int     `json:"proxyRetryCount"`
 	ProxyCheckConcurrency       int     `json:"proxyCheckConcurrency"`
@@ -39,12 +33,9 @@ type ExecutionSettings struct {
 func DefaultExecutionSettings() ExecutionSettings {
 	return ExecutionSettings{
 		SchemaVersion:               2,
-		RequireRegistrationPassword: false,
-		EnableRegistrationTotp:      true,
-		RequireTrialOnCheck:         false,
-		AutoMultiCountryProbe:       false,
+		EnableRegistrationSecurity:  false,
 		RegistrationMode:            "protocol",
-		ProxyRetryCount:             1,
+		ProxyRetryCount:             4, // 对齐拨号器原写死 maxRedial=4,避免接入后默认 1 砍成功率
 		ProxyCheckConcurrency:       16,
 		MaxRegistrationsPerExitIP:   0,
 		Concurrency:                 2,

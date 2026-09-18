@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -13,14 +14,26 @@ import (
 	"gpt-go/internal/util"
 )
 
+// SettingsGetter 抽象「读当前 ExecutionSettings」(由 settingsSvc 提供)。
+type SettingsGetter interface {
+	Get(ctx context.Context) (model.ExecutionSettings, error)
+}
+
 // Handler is the proxies API group handler.
 type Handler struct {
-	svc *proxysvc.Service
+	svc      *proxysvc.Service
+	settings SettingsGetter // 测速并发(ExecutionSettings.proxyCheckConcurrency)
 }
 
 // NewHandler returns a proxies API handler bound to the service.
 func NewHandler(svc *proxysvc.Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+// WithSettings 注入 ExecutionSettings 读取器(测速并发用;可选,缺省 16)。
+func (h *Handler) WithSettings(g SettingsGetter) *Handler {
+	h.settings = g
+	return h
 }
 
 // Register mounts the /api/proxies routes onto the given group.
@@ -89,7 +102,14 @@ func (h *Handler) test(c *gin.Context) {
 	if timeout <= 0 {
 		timeout = 8
 	}
-	result, err := h.svc.TestStoredProxies(c.Request.Context(), payload.Country, payload.Group, timeout)
+	// 测速并发:现读 ExecutionSettings.proxyCheckConcurrency(缺省 16)。
+	concurrency := 16
+	if h.settings != nil {
+		if st, serr := h.settings.Get(c.Request.Context()); serr == nil && st.ProxyCheckConcurrency > 0 {
+			concurrency = st.ProxyCheckConcurrency
+		}
+	}
+	result, err := h.svc.TestStoredProxies(c.Request.Context(), payload.Country, payload.Group, timeout, concurrency)
 	if err != nil {
 		util.WriteError(c, err)
 		return

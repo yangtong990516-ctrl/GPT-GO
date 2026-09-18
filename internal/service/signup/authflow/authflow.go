@@ -210,7 +210,7 @@ func (f *Flow) RunRegister(ctx context.Context, email, password string, mail otp
 
 	if isNewAccountFlow {
 		// 7) 设密码（passwordless 跳过：服务端对此 state 必 400，跳过无损失）
-		if !isPasswordless {
+		if !isPasswordless && password != "" {
 			if _, err := f.registerPassword(ctx, email, password); err != nil {
 				return nil, signup.NewRegistrationError("register_password_failed", email, err)
 			}

@@ -372,7 +372,7 @@ func (s *Server) Handler() *gin.Engine {
 	sentinel.NewHandler(s.sentinelSched).Register(engine.Group("/api/sentinel"))
 
 	// Proxy pool group (CONTRACT §4.5).
-	proxy.NewHandler(s.proxySvc).Register(engine.Group("/api/proxies"))
+	proxy.NewHandler(s.proxySvc).WithSettings(s.settingsSvc).Register(engine.Group("/api/proxies"))
 
 	// Payment-check group（支付类型检测，独立功能页）：全局互斥批次 + 账号并发 + 线路串行。
 	if s.paymentChecker != nil {
@@ -390,8 +390,10 @@ func (s *Server) Handler() *gin.Engine {
 		// runStore 用 config.mongodb 的 uri/database 建（懒连接，首次 save 才连）。
 		h := runs.NewHandler(
 			s.settingsSvc,
-			func(exitIPCap int) *signup.SessionDialer {
-				return signup.NewSessionDialer(s.signup.prober, signup.WithExitIPCap(exitIPCap))
+			func(exitIPCap, maxRedial int) *signup.SessionDialer {
+				return signup.NewSessionDialer(s.signup.prober,
+					signup.WithExitIPCap(exitIPCap),
+					signup.WithMaxRedial(maxRedial))
 			},
 			s.signup.Svc,
 		).WithRegistry(s.runRegistry).WithLogHub(s.logHub)
