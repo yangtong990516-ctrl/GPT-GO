@@ -501,16 +501,38 @@ func (m *mongoProxyStore) AcquireProxy(ctx context.Context, owner string, exclud
 	}
 	cctx, cancel := m.c(ctx)
 	defer cancel()
+	// 并发竞争重试:多个 worker 会同时选中同一条 best,只有一个 FindOneAndUpdate
+	// 成功,其余 isNoDocuments → 不能返回 nil(那会被当「无可用通道」判死),
+	// 要重查重选下一条。最多重试 8 次(对齐代理池规模,足够错开竞争)。
+	for attempt := 0; attempt < 8; attempt++ {
+		lease, found, err := m.tryAcquireOnce(cctx, owner, excluded, leaseSeconds, country, group)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			return lease, nil // 含 lease==nil(真无可用) —— 见 tryAcquireOnce 语义
+		}
+		// found=false = best 被并发抢走,重试选下一条
+	}
+	return nil, nil
+}
+
+// tryAcquireOnce 选一条最优代理并原子占租。
+// 返回 (lease, found, err):
+//   - found=true  + lease 非空 = 抢到;
+//   - found=true  + lease==nil = 真无可用通道(池空/全被占且过了重试);
+//   - found=false = best 被并发抢走(isNoDocuments),调用方应重试。
+func (m *mongoProxyStore) tryAcquireOnce(cctx context.Context, owner string, excluded map[string]bool, leaseSeconds int, country, group string) (*model.ProxyLease, bool, error) {
 	now := time.Now().UTC()
 	leaseUntil := now.Add(time.Duration(leaseSeconds) * time.Second).Format(time.RFC3339Nano)
 	cursor, err := m.collection().Find(cctx, bson.M{"enabled": true, "status": model.ProxyStatusAvailable})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() { _ = cursor.Close(cctx) }()
 	var docs []model.ProxyDocument
 	if err := cursor.All(cctx, &docs); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var best *model.ProxyDocument
 	for i := range docs {
@@ -542,7 +564,7 @@ func (m *mongoProxyStore) AcquireProxy(ctx context.Context, owner string, exclud
 		}
 	}
 	if best == nil {
-		return nil, nil
+		return nil, true, nil // 池里真没有可用通道
 	}
 	occupancyFilter := bson.M{
 		"_id": best.ID,
@@ -566,12 +588,12 @@ func (m *mongoProxyStore) AcquireProxy(ctx context.Context, owner string, exclud
 	err = m.collection().FindOneAndUpdate(cctx, occupancyFilter, update, opts).Decode(&result)
 	if err != nil {
 		if isNoDocuments(err) {
-			return nil, nil
+			return nil, false, nil // best 被并发抢走,调用方重试
 		}
-		return nil, err
+		return nil, false, err
 	}
 	lease := toLease(&result)
-	return &lease, nil
+	return &lease, true, nil
 }
 
 func (m *mongoProxyStore) AcquireProxyByID(ctx context.Context, proxyID, owner string, leaseSeconds int) (*model.ProxyLease, error) {
