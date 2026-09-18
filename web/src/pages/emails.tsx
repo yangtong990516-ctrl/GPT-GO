@@ -286,6 +286,7 @@ export default function EmailsPage() {
             <SelectItem value="all">全部来源</SelectItem>
             <SelectItem value="standard">手工导入</SelectItem>
             <SelectItem value="mailcode">Mailcode</SelectItem>
+            <SelectItem value="remail">Remail</SelectItem>
           </SelectContent>
         </Select>
         <Select

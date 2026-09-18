@@ -127,10 +127,12 @@ func emailFilter(q EmailQuery) bson.M {
 	case "mailcom_alias", "mailcode", "remail":
 		filter["sourceType"] = q.Source
 	case "standard":
-		// {$or:[{sourceType:{$exists:false}},{sourceType:{$nin:["mailcom_alias","mailcode"]}}]}
+		// 手工导入 = 无 sourceType,或 sourceType 不属于任何平台来源。
+		// 排除项必须含 remail,否则 remail 邮箱会被误并入「手工导入」。
+		// {$or:[{sourceType:{$exists:false}},{sourceType:{$nin:["mailcom_alias","mailcode","remail"]}}]}
 		filter["$or"] = bson.A{
 			bson.M{"sourceType": bson.M{"$exists": false}},
-			bson.M{"sourceType": bson.M{"$nin": bson.A{"mailcom_alias", "mailcode"}}},
+			bson.M{"sourceType": bson.M{"$nin": bson.A{"mailcom_alias", "mailcode", "remail"}}},
 		}
 	default: // "all" or "" => no filter
 	}

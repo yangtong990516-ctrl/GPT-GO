@@ -16,9 +16,10 @@ import (
 )
 
 // validSource mirrors the route pattern for `source`:
-// ^(all|standard|mailcom_alias|mailcode)$  (NOTE: no "remail"; cloudmail 已按决策移除).
+// ^(all|standard|mailcom_alias|mailcode|remail)$  (cloudmail 已按决策移除;
+// remail 由 import-purchased-orders 落库,邮箱池主要来源,必须可筛选).
 var validSource = map[string]struct{}{
-	"all": {}, "standard": {}, "mailcom_alias": {}, "mailcode": {},
+	"all": {}, "standard": {}, "mailcom_alias": {}, "mailcode": {}, "remail": {},
 }
 
 // validStatus mirrors the route pattern for `status`:

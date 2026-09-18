@@ -119,9 +119,10 @@ func sourceMatches(source, sourceType string) bool {
 	case "remail":
 		return sourceType == "remail"
 	case "standard":
-		// {$or:[{sourceType:{$exists:false}},{sourceType:{$nin:["mailcom_alias","mailcode"]}}]}
+		// 手工导入:排除所有平台来源(含 remail),对齐 mongo_email.go。
+		// {$or:[{sourceType:{$exists:false}},{sourceType:{$nin:["mailcom_alias","mailcode","remail"]}}]}
 		switch sourceType {
-		case "mailcom_alias", "mailcode":
+		case "mailcom_alias", "mailcode", "remail":
 			return false
 		}
 		return true
