@@ -228,6 +228,18 @@ func (s *Service) Run(ctx context.Context, params RunParams) (*RegistrationResul
 		return nil, err
 	}
 
+	// 3d) auth_session 结果落日志:是否拿到 AT / session_cookie / cookie_header / 密码。
+	//     让前端实时看到「auth/session 是否取到 AT」「passwordless 还是设密码」。
+	log.Emit(LogInfo, "auth_session_ok", "auth/session 取凭证完成", reserved.Email, map[string]any{
+		"accessToken":  authRes.AccessToken != "",
+		"sessionToken": authRes.SessionToken != "",
+		"cookieHeader": authRes.CookieHeader != "",
+		"password":     authRes.Password != "",
+		"refreshToken": authRes.RefreshToken != "",
+		"country":      dial.Country,
+		"exitIP":       dial.EgressIP,
+	})
+
 	// 4) 落库（成功 → account.Create + 邮箱 consume）
 	step("步骤4/5 落库 ...")
 	accountID, perr := s.persistOnSuccess(ctx, authRes, reserved, dial)
