@@ -584,7 +584,7 @@ export default function PaymentCheckPage() {
         <div className="min-w-0">
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-start gap-x-6 gap-y-2">
             <div>
               <CardTitle className="text-sm">检测结果</CardTitle>
               <CardDescription>
