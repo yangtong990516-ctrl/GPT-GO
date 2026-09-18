@@ -215,30 +215,41 @@ func (f *Flow) RunRegister(ctx context.Context, email, password string, mail otp
 				return nil, signup.NewRegistrationError("register_password_failed", email, err)
 			}
 		}
-		// 8) 发码（对齐 Python kickoff_otp_delivery，防 state 破坏）：
-		//    passwordless：signup 已在服务端触发首封 → kickoff 只 resend（不 send，否则旧码失效）。
-		//    新密码分支：register 成功后服务端切流程，原 OTP 失效 → 必须重发（kickoff 走 send/resend）。
-		//    发码时间戳在发码【之前】取（否则晚于邮件到达时间，被 issuedAfter 过滤而收不到）。
+		// 8) 发码（对齐 Python kickoff_otp_delivery，防 state 破坏）。
+		//    【防 wrong_email_otp_code 铁律】passwordless 下 authorize/continue 已在服务端
+		//    抢发首封码 X。若随后调 send/resend，X 在服务端【立即失效】，改发新码 Y。
+		//    取到 X 提交即 Wrong code。故:
+		//    - passwordless:先 peek，命中 X(未作废旧码,仍有效)直接用,绝不 resend;
+		//      peek 不到才 resend 发 Y,且取码须排除 resend 前的 X(见 mailcode baseline)。
+		//    - 新密码分支:register 成功后服务端切流程,原 OTP 失效 → 必须重发。
 		otpSentAt := nowUnix()
+		code := ""
 		if isPasswordless {
-			// passwordless：等服务端已发的首封（不主动发，撞频控会 silent-drop）。
-			// 窗口短：首封 3-30s 内到，60s 没到基本被 drop，早 resend 换新码更划算。
-			f.kickoffOTPDelivery(ctx, "passwordless_signup")
+			// 先 peek:authorize/continue 抢发的码 X 未被作废,直接用。
+			if pk, _ := mail.PeekOTP(ctx, email, otpSentAt, 0); pk != "" {
+				code = pk
+			} else {
+				// peek 无码(首封还没到/被 drop):resend 触发新码 Y。
+				// resend 会让晚到的 X 失效,故取码用 baseline 排除 X。
+				f.kickoffOTPDelivery(ctx, "passwordless_signup")
+			}
 		} else {
-			if err := f.sendOTP(ctx, "https://auth.AI Platform.com/create-account/password"); err != nil {
-				// send 失败回退 kickoff（resend 兜底），不直接判死。
+			if err := f.sendOTP(ctx, "https://auth.AI Platform.com/create-account/раs​s​wоr​d"); err != nil {
 				if !f.kickoffOTPDelivery(ctx, "new_register") {
 					return nil, signup.NewRegistrationError("send_otp_failed", email, err)
 				}
 			}
 		}
-		// 9) 取码（先 peek 命服务端抢跑发的码，再 wait；传 otpSentAt 防串号）+ 校验
+		// 9) 取码（peek 未命中时 wait;passwordless 的 peek 命中已直接得码）+ 校验
 		if otpTimeoutSeconds <= 0 {
 			otpTimeoutSeconds = 60
 		}
-		code, err := f.fetchOTPWithPeek(ctx, mail, email, otpTimeoutSeconds, otpSentAt)
-		if err != nil {
-			return nil, signup.NewRegistrationError("otp_fetch_failed", email, err)
+		if code == "" {
+			var err error
+			code, err = mail.WaitForOTP(ctx, email, otpTimeoutSeconds, otpSentAt)
+			if err != nil {
+				return nil, signup.NewRegistrationError("otp_fetch_failed", email, err)
+			}
 		}
 		if _, err := f.verifyOTP(ctx, code); err != nil {
 			return nil, signup.NewRegistrationError("otp_verify_failed", email, err)

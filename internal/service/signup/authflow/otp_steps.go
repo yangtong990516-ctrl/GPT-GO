@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"strings"
 
-	"gpt-go/internal/service/signup/otp"
 	"gpt-go/internal/service/signup/totp"
 )
 
@@ -218,23 +217,3 @@ func isMfaChallengeState(pageType, continueURL string) bool {
 // ═══════════════════════════════════════════════════════════════════════════
 // 取码便捷入口（peek + wait，对齐 Python 的「先 peek 省一封，再 wait」）
 // ═══════════════════════════════════════════════════════════════════════════
-
-// fetchOTPWithPeek 先 peek（命中服务端抢跑发的码则省一封）再 wait 取 OTP。
-//
-// 对齐 Python 的取码策略：
-//   - login_hint 会让服务端【抢跑发码】（比正式提交早 20s），一轮能收 3 封【码一样】的信，
-//     先 peek 命中就不用再等/再发。
-//   - issuedAfterUnix 是发码前取的时间戳，防串号（只接受这之后到的邮件）。
-//
-// mail 为 nil 时返回明确错误（调用方应保证 OTP 分支必传 provider）。
-func (f *Flow) fetchOTPWithPeek(ctx context.Context, mail otp.Provider, email string, timeoutSeconds int, issuedAfterUnix int64) (string, error) {
-	if mail == nil {
-		return "", fmt.Errorf("取码需要邮箱 provider（mail 为 nil）")
-	}
-	// 先 peek：命中即返回（省一封，避免撞服务端发码频控）。
-	if code, _ := mail.PeekOTP(ctx, email, issuedAfterUnix, 0); code != "" {
-		return code, nil
-	}
-	// 再 wait：阻塞等码（传 issuedAfter 防串号）。
-	return mail.WaitForOTP(ctx, email, timeoutSeconds, issuedAfterUnix)
-}
