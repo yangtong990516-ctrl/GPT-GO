@@ -584,7 +584,7 @@ export default function PaymentCheckPage() {
         <div className="min-w-0">
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex flex-wrap items-center justify-start gap-x-6 gap-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <div>
               <CardTitle className="text-sm">检测结果</CardTitle>
               <CardDescription>
@@ -595,24 +595,24 @@ export default function PaymentCheckPage() {
                     : "本批次检测完成"}
               </CardDescription>
             </div>
-            {/* 开始检测/停止批次 按钮:常驻结果卡标题栏,添加完代理即可点 */}
-            {hasBatch && batch.data && "total" in batch.data && (
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-                <span className="flex items-center gap-1.5">
-                  {batchRunning && <Loader2 className="size-4 animate-spin text-primary" />}
-                  进度 <strong>{batch.data.done}/{batch.data.total}</strong>
-                </span>
-                <span>跳过 <strong>{batch.data.skipped}</strong></span>
-                <span className="flex items-center gap-1">
-                  <ShieldCheck className="size-4 text-emerald-500" />
-                  0 元有渠道 <strong className="text-emerald-600">{batch.data.zeroCount}</strong>
-                </span>
-                <span className={batchRunning ? "font-medium text-primary" : "text-muted-foreground"}>
-                  {batchRunning ? "运行中" : batch.data.canceled ? "已取消" : "已完成"}
-                </span>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
+            {/* 进度 + 开始检测:连续一组,整体推到最右 */}
+            <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+              {hasBatch && batch.data && "total" in batch.data && (
+                <>
+                  <span className="flex items-center gap-1.5">
+                    {batchRunning && <Loader2 className="size-4 animate-spin text-primary" />}
+                    进度 <strong>{batch.data.done}/{batch.data.total}</strong>
+                  </span>
+                  <span>跳过 <strong>{batch.data.skipped}</strong></span>
+                  <span className="flex items-center gap-1">
+                    <ShieldCheck className="size-4 text-emerald-500" />
+                    0 元有渠道 <strong className="text-emerald-600">{batch.data.zeroCount}</strong>
+                  </span>
+                  <span className={batchRunning ? "font-medium text-primary" : "text-muted-foreground"}>
+                    {batchRunning ? "运行中" : batch.data.canceled ? "已取消" : "已完成"}
+                  </span>
+                </>
+              )}
               {batchRunning ? (
                 <Button
                   variant="outline"
