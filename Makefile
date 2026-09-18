@@ -22,22 +22,32 @@ PKG      := ./cmd/server
 TAGS     := -tags v8
 
 # 操作系统检测：Linux 下 V8 14.x 公开头用 libc++，必须用 clang（gcc 链不上）。
+# v8go 内置 libc++(include_libcxx)用到 clang-19 才有的内建(__builtin_clzg 等)，
+# 故 Linux 优先选 clang-19；找不到再依次退 18/默认 clang。可用 CC=xxx 覆盖。
 UNAME_S  := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
-  export CC  := clang
-  export CXX := clang++
+  CLANG   := $(shell command -v clang-19 || command -v clang-18 || command -v clang)
+  CLANGXX := $(shell command -v clang++-19 || command -v clang++-18 || command -v clang++)
+  export CC  ?= $(CLANG)
+  export CXX ?= $(CLANGXX)
 endif
+
+# v8go 的预编译静态库 libv8.a 不随 go module 下发，需先 fetch 到 deps/{os}_{arch}/。
+# 抽成独立脚本(内部精确解析模块目录),build 时检测缺失自动下载。
+.PHONY: fetch-libv8
+fetch-libv8:
+	@GOTOOLCHAIN=auto bash deploy/fetch-libv8.sh
 
 .PHONY: all build run test test-race vet fmt clean help
 
 # 默认目标：构建（带 v8）。
 all: build
 
-## build: 构建服务二进制（默认带 v8 + CGO；Linux 自动用 clang）。
-build:
+## build: 构建服务二进制（默认带 v8 + CGO；Linux 自动用 clang，缺 libv8.a 自动下载）。
+build: fetch-libv8
 	@mkdir -p bin
 	go build $(TAGS) -o $(BIN) $(PKG)
-	@echo "built: $(BIN)  (v8 已编入, CGO_ENABLED=$(CGO_ENABLED), OS=$(UNAME_S))"
+	@echo "built: $(BIN)  (v8 已编入, CGO_ENABLED=$(CGO_ENABLED), OS=$(UNAME_S), CC=$(CC))"
 
 ## run: 本地启动（带 v8 构建后直接跑；用 config/config.yaml）。
 run: build
