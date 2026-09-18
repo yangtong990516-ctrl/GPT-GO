@@ -596,22 +596,6 @@ export default function PaymentCheckPage() {
               </CardDescription>
             </div>
             {/* 开始检测/停止批次 按钮:常驻结果卡标题栏,添加完代理即可点 */}
-            <div className="flex items-center gap-2">
-              {batchRunning ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-red-300 text-red-600 hover:bg-red-50"
-                  onClick={() => cancelCheck.mutate()}
-                >
-                  <CircleStop /> 停止批次
-                </Button>
-              ) : (
-                <Button size="sm" onClick={doRun} disabled={runCheck.isPending || !canRun}>
-                  <Play /> 开始检测（{tab === "pool" ? effectiveIds.size : parsedTokens.length}）
-                </Button>
-              )}
-            </div>
             {hasBatch && batch.data && "total" in batch.data && (
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
                 <span className="flex items-center gap-1.5">
@@ -628,6 +612,22 @@ export default function PaymentCheckPage() {
                 </span>
               </div>
             )}
+            <div className="flex items-center gap-2">
+              {batchRunning ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-red-300 text-red-600 hover:bg-red-50"
+                  onClick={() => cancelCheck.mutate()}
+                >
+                  <CircleStop /> 停止批次
+                </Button>
+              ) : (
+                <Button size="sm" onClick={doRun} disabled={runCheck.isPending || !canRun}>
+                  <Play /> 开始检测（{tab === "pool" ? effectiveIds.size : parsedTokens.length}）
+                </Button>
+              )}
+            </div>
           </div>
           {/* 进度条(仅有批次时) */}
           {hasBatch && batch.data && "total" in batch.data && (
