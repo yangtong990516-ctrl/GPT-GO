@@ -154,8 +154,8 @@ func TestMailcodeExtractsFromBody(t *testing.T) {
 		fmt.Fprint(w, `{"body":"Your verification code is 555777. Valid 10 min."}`)
 	}))
 	defer srv.Close()
-	p := NewMailcodeProvider(srv.URL)
-	code, err := p.WaitForOTP(context.Background(), "a@x.com", 2, 0)
+	p := NewMailcodeProvider(srv.URL, WithMailcodePollInterval(5*time.Millisecond))
+	code, err := p.WaitForOTP(context.Background(), "a@x.com", 5, 0)
 	if err != nil || code != "555777" {
 		t.Fatalf("应从正文抠码 555777, code=%q err=%v", code, err)
 	}

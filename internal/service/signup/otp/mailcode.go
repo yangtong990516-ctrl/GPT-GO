@@ -117,6 +117,17 @@ func (p *MailcodeProvider) WaitForOTP(ctx context.Context, emailAddr string, tim
 	}
 	deadline := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 
+	// ── baseline 机制(对齐 codex wait_for_new_code 的 submitted_at 语义)────────
+	// wdmail 等 HTML 取件页【无单邮件时间戳】,issuedAfter 时间窗对它们失效。
+	// 这些邮箱若被反复注册,页面会残留【上次注册的旧码】(如 023332),而本次 signup
+	// 触发的新码(如 807327)要数秒~数十秒才同步到页面。若进入立即取,会抓到旧码
+	// 提交 → wrong_email_otp_code(高并发实测:提交的恰是上次残留旧码)。
+	// 对策(对齐 codex「码与 baseline 不同才接受」):进入时先抓一次页面,记录
+	// 【当前已有码 = baseline(旧码)】,之后【只接受与 baseline 不同的新码】。
+	// 全新邮箱 baseline 为空,第一次取到即新码,直接放行。
+	baseline, _, _ := p.fetchOnce(ctx, 0)
+	sameAsBaseline := 0 // 与 baseline 相同的连续帧数(单邮件稳定场景兜底)
+
 	for {
 		// 超时判定（对齐 Python TimeoutError）。
 		if time.Now().After(deadline) {
@@ -143,10 +154,23 @@ func (p *MailcodeProvider) WaitForOTP(ctx context.Context, emailAddr string, tim
 			continue
 		}
 		if code != "" {
-			// 防抖确认:立刻再抓一次(不 sleep pollInterval),两次一致才返回,
-			// 避免页面刷新瞬间/解析闪变拿到半成品。确认失败则继续轮询。
-			// 注:codex 明确 passwordless 的 resend 复用同一 challenge,【第一封的码
-			// 同样有效】,故这里【不做 baseline 排除】——晚到的首封也是合法码。
+			if baseline != "" && code == baseline {
+				// 与 baseline 相同:可能是①上次残留旧码(该排除)②全新邮箱唯一一封
+				// 本次新码(baseline 抓取时它恰好已到)。区分:给它少量帧数让真实新码
+				// 顶替;若【连续多帧】都不变(页面没更新出不同码),说明大概率是②
+				// (唯一邮件),兜底接受——否则会把「全新邮箱首封」卡死。
+				sameAsBaseline++
+				if sameAsBaseline >= 8 {
+					return code, nil
+				}
+				if !sleepOrDone(ctx, p.pollInterval) {
+					return "", NewError("验证码等待被取消", false, "cancelled", ctx.Err())
+				}
+				continue
+			}
+			sameAsBaseline = 0
+			// 新码(≠baseline,或 baseline 为空):防抖确认——立刻再抓一次,两次一致
+			// 才返回,避免页面刷新瞬间/解析闪变拿到半成品。确认失败则继续轮询。
 			if confirm, _, cerr := p.fetchOnce(ctx, issuedAfterUnix); cerr == nil && confirm == code {
 				return code, nil
 			}
