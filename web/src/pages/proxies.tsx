@@ -411,7 +411,7 @@ export function ProxiesSection() {
         <StatCard label="隔离" value={summaryQuar} />
       </div>
 
-      <Tabs defaultValue="list">
+      <Tabs defaultValue="groups">
         <TabsList className="mb-4">
           <TabsTrigger value="list">代理列表</TabsTrigger>
           <TabsTrigger value="groups">分组管理</TabsTrigger>
