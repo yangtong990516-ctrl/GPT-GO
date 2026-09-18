@@ -440,17 +440,26 @@ export function useEmailSourceOptions() {
   return useQuery({
     queryKey: ["emails", "sourceOptions"],
     queryFn: async () => {
-      // 拉可用邮箱(pageSize 拉满;邮箱池量级内可承受),前端按来源聚合。
-      const page = await api.get<Page<import("./types").EmailRecord>>("/api/emails", {
-        page: 1,
-        pageSize: 1000,
-        status: "available",
-        source: "all",
-      })
+      // 拉全部可用邮箱做来源聚合。后端 pageSize 上限 100,故分页循环拉取直到取完。
       const counts = new Map<string, number>()
-      for (const e of page.items ?? []) {
-        const st = e.sourceType || "manual"
-        counts.set(st, (counts.get(st) ?? 0) + 1)
+      const pageSize = 100
+      let page = 1
+      // 安全上限:最多 200 页(2 万邮箱),防异常死循环。
+      for (let guard = 0; guard < 200; guard++) {
+        const resp = await api.get<Page<import("./types").EmailRecord>>("/api/emails", {
+          page,
+          pageSize,
+          status: "available",
+          source: "all",
+        })
+        const items = resp.items ?? []
+        for (const e of items) {
+          const st = e.sourceType || "manual"
+          counts.set(st, (counts.get(st) ?? 0) + 1)
+        }
+        // 取完判定:本页不满 pageSize 说明已是最后一页。
+        if (items.length < pageSize) break
+        page++
       }
       return Array.from(counts.entries())
         .map(([sourceType, count]) => ({ sourceType, count }))

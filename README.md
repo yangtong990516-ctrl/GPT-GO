@@ -46,9 +46,11 @@ cp config/config.example.yaml config/config.yaml
 
 ```bash
 cd web && npm install && npm run build   # 前端 → web/dist
-cd .. && go build -o bin/gpt-go-server ./cmd/server   # 后端
+cd .. && make build                       # 后端(默认带 -tags v8,编入 Sentinel 求解器)
 ./bin/gpt-go-server -config config/config.yaml
 ```
+
+> **必须带 `-tags v8` 构建**(start.sh 和 Makefile 都已默认带上)。否则编译出的是「无 Sentinel solver」的二进制,**注册和补 2FA 会在 Cloudflare sentinel 步骤失败**(报"Solver 未注入")。v8go 官方为 Linux x86_64 / macOS 提供预编译 libv8,go build 自动链接,无需自编译 V8。
 
 ## 部署到线上
 

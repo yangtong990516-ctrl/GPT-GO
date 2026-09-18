@@ -128,7 +128,15 @@ if [[ "$NO_BUILD" -eq 0 ]]; then
   fi
   # 后端
   log "构建后端…"
-  GOTOOLCHAIN=auto go build -o "$BIN" ./cmd/server || { err "后端构建失败"; exit 1; }
+  # 关键:必须带 -tags v8,否则编译出「无 Sentinel solver」的二进制,
+  # 注册/补2FA 会在 Cloudflare sentinel 步骤报「Solver 未注入」失败(见 Makefile 注释)。
+  if command -v make >/dev/null 2>&1 && [[ -f Makefile ]]; then
+    GOTOOLCHAIN=auto make build >/dev/null || { err "后端构建失败(make build)"; exit 1; }
+  else
+    # 无 make 时手动带 v8 tag;Linux 下 V8 需 clang(见 Makefile)。
+    [[ "$(uname -s)" == "Linux" ]] && export CC="${CC:-clang}"
+    GOTOOLCHAIN=auto go build -tags v8 -o "$BIN" ./cmd/server || { err "后端构建失败"; exit 1; }
+  fi
 fi
 
 [[ -x "$BIN" ]] || { err "找不到可执行文件 $BIN(先去掉 --no-build 让脚本构建)"; exit 1; }
