@@ -126,15 +126,23 @@ function emailFromJWT(token: string): string {
   try {
     const parts = token.trim().split(".")
     if (parts.length < 2) return ""
-    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/")
+    // base64url → base64,并补 = padding(atob 对缺 padding 的串会抛错)。
+    let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/")
+    while (b64.length % 4 !== 0) b64 += "="
     const json = JSON.parse(decodeURIComponent(escape(atob(b64))))
+    // 顶层 email
     if (typeof json.email === "string" && json.email.includes("@")) return json.email
-    // 兼容 namespaced claim
+    // namespaced claim:https://api.openai.com/profile.email / auth.email 等(嵌套一层)
     for (const k of Object.keys(json)) {
       const v = json[k]
       if (typeof v === "object" && v && typeof v.email === "string" && v.email.includes("@")) {
         return v.email
       }
+    }
+    // 任意 key 含 email 的字符串值(兜底)
+    for (const k of Object.keys(json)) {
+      const v = json[k]
+      if (typeof v === "string" && k.toLowerCase().includes("email") && v.includes("@")) return v
     }
     return ""
   } catch {
@@ -413,6 +421,16 @@ export default function PaymentCheckPage() {
     return m
   }, [poolAccounts])
 
+  // paste 模式运行中回退:tok-N → parsedTokens[N].label(JWT 解出的邮箱)。
+  // 后端 item 未完成时,用本地解析的邮箱顶位,避免显示 tok-0。
+  const pasteLabelById = React.useMemo(() => {
+    const m = new Map<string, string>()
+    parsedTokens.forEach((t, i) => {
+      if (t.label) m.set(`tok-${i}`, t.label)
+    })
+    return m
+  }, [parsedTokens])
+
   const runCheck = useRunPaymentCheck()
   const cancelCheck = useCancelPaymentCheck()
 
@@ -664,7 +682,7 @@ export default function PaymentCheckPage() {
                 {Object.keys(batch.data.accounts ?? {}).flatMap((id) => {
                   const state = accountState(id)
                   const item = itemById.get(id)
-                  const label = item?.label || poolEmailById.get(id) || id
+                  const label = item?.label || pasteLabelById.get(id) || poolEmailById.get(id) || id
                   const running = state !== "done" && state !== "failed" && state !== "skipped"
                   // 该账号要跑的线路:优先已返回的 routes 键,否则用用户点选的 routeColumns。
                   const itemRouteKeys = Object.keys(item?.routes ?? {})
