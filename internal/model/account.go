@@ -97,6 +97,7 @@ type PaymentRouteResult struct {
 	ExitCountry     string    `json:"exit" bson:"exit"`                                 // 出口国家（cloudflare trace/GeoIP 实测）
 	ExitPurity      string    `json:"exitPurity,omitempty" bson:"exitPurity"`           // clean/dirty（sliver 纯度）
 	SessionType     string    `json:"sessionType,omitempty" bson:"sessionType"`         // 会话类型前缀 oaics_/cs_live_（不含完整 ID）
+	ProcessorEntity string   `json:"processorEntity,omitempty" bson:"processorEntity"` // 处理实体 openai_llc/openai_ie/stripe
 	HTTPStatus      int       `json:"httpStatus" bson:"httpStatus"`
 	Error           string    `json:"error,omitempty" bson:"error"` // 已脱敏（≤280 字符）
 	CheckedAt       time.Time `json:"checkedAt" bson:"checkedAt"`

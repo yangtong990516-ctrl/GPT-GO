@@ -74,6 +74,8 @@ type checkoutResult struct {
 	AmountDue      *int64
 	ZeroStatus     string
 	HTTPStatus     int
+	// ProcessorEntity 处理实体(processor_entity/processorEntity,回退 openai_llc/openai_ie)。
+	ProcessorEntity string
 }
 
 // checkoutSession 抽象建单所需的 HTTP 能力（*core.Session 满足；测试注入替身）。
@@ -216,6 +218,7 @@ func readOAICS(ctx context.Context, sess checkoutSession, accessToken string, ro
 			entity = "openai_ie"
 		}
 	}
+	out.ProcessorEntity = entity
 
 	stateURL := fmt.Sprintf("%s/%s/%s", checkoutStateBase, entity, sessionID)
 	stateResp, err := getWithAuth(ctx, sess, stateURL,
@@ -281,6 +284,8 @@ func readStripeInit(ctx context.Context, sess checkoutSession, route Route, chec
 		obs := ObserveAmounts(payload)
 		out.ZeroStatus, out.AmountDue = JudgeZero(obs)
 		out.HTTPStatus = 200
+		// Stripe Hosted Checkout 的处理实体即 Stripe。
+		out.ProcessorEntity = "stripe"
 		return nil
 	}
 	return &CheckError{Status: "checkout_failed", HTTPStatus: out.HTTPStatus, Message: lastErr}

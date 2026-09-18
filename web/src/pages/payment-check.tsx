@@ -5,7 +5,6 @@ import { toast } from "sonner"
 import {
   CircleStop,
   CreditCard,
-  Globe,
   Loader2,
   Play,
   Plus,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import { HttpError } from "@/lib/api"
+import { formatTime } from "@/lib/format"
 import {
   useAccounts,
   useCancelPaymentCheck,
@@ -25,7 +25,7 @@ import {
   type PaymentProxyItem,
   type PaymentRouteSpec,
 } from "@/lib/queries"
-import type { AccountRecord, PaymentRouteResult } from "@/lib/types"
+import type { AccountRecord } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -53,11 +53,6 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 
 // ── 展示辅助 ──────────────────────────────────────────────────────────────────
 
@@ -109,6 +104,57 @@ function methodLabel(m: string) {
   return METHOD_LABELS[m] ?? m
 }
 
+// checkoutTypeLabel 把 sessionType 前缀映射为可读的 Checkout 类型。
+function checkoutTypeLabel(sessionType?: string): string {
+  switch (sessionType) {
+    case "oaics_":
+      return "Custom Checkout"
+    case "cs_live_":
+      return "Stripe 正式"
+    case "cs_test_":
+      return "Stripe 测试"
+    default:
+      return sessionType ? sessionType.replace(/_$/, "") : "—"
+  }
+}
+
+// entityLabel 把处理实体代码映射为可读名。
+function entityLabel(entity?: string): string {
+  switch (entity) {
+    case "openai_llc":
+      return "OpenAI LLC(美国)"
+    case "openai_ie":
+      return "OpenAI IE(爱尔兰)"
+    case "stripe":
+      return "Stripe"
+    default:
+      return entity || "—"
+  }
+}
+
+// emailFromJWT 解析 access token(JWT)payload 里的 email 字段。
+// ChatGPT AT 是标准 JWT(header.payload.signature),payload 含 https://api.openai.com/auth 等
+// claim,邮箱常在 email / https://api.openai.com/profile.email。解析失败返回空串。
+function emailFromJWT(token: string): string {
+  try {
+    const parts = token.trim().split(".")
+    if (parts.length < 2) return ""
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/")
+    const json = JSON.parse(decodeURIComponent(escape(atob(b64))))
+    if (typeof json.email === "string" && json.email.includes("@")) return json.email
+    // 兼容 namespaced claim
+    for (const k of Object.keys(json)) {
+      const v = json[k]
+      if (typeof v === "object" && v && typeof v.email === "string" && v.email.includes("@")) {
+        return v.email
+      }
+    }
+    return ""
+  } catch {
+    return ""
+  }
+}
+
 function formatAmount(minor: number | null, currency: string) {
   if (minor === null) return "金额未知"
   if (minor === 0) return "0 元"
@@ -122,53 +168,6 @@ function proxyURL(p: PaymentProxyItem): string {
 }
 
 // 线路单元格：金额+渠道 / 出口IP+纯度 / 状态。
-function RouteCell({ route }: { route: PaymentRouteResult | undefined }) {
-  if (!route) return <span className="text-muted-foreground text-xs">—</span>
-  const zero = route.zeroStatus === "zero_confirmed"
-  const methods = [...(route.methods ?? []), ...(route.methodsInferred ?? [])]
-  return (
-    <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-1">
-        <Badge variant={zero ? "default" : "secondary"} className="text-xs">
-          {formatAmount(route.amountDue, route.currency)}
-        </Badge>
-        {methods.map((m) => (
-          <Badge key={m} variant="outline" className="text-xs">
-            {methodLabel(m)}
-            {(route.methodsInferred ?? []).includes(m) ? "（推断）" : ""}
-          </Badge>
-        ))}
-        {methods.length === 0 && (
-          <span className="text-muted-foreground text-xs">
-            {STATUS_LABELS[route.status] ?? route.status}
-          </span>
-        )}
-      </div>
-      <div className="text-muted-foreground flex items-center gap-1 text-xs">
-        <Globe className="size-3" />
-        <span className="font-mono">{route.exitIp || "—"}</span>
-        {route.exitPurity && (
-          <Badge
-            variant={route.exitPurity === "clean" ? "secondary" : "destructive"}
-            className="text-[10px]"
-          >
-            {route.exitPurity === "clean" ? "干净" : "机房"}
-          </Badge>
-        )}
-        {route.error && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="cursor-help text-amber-500">⚠</span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="max-w-64">{route.error}</p>
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-    </div>
-  )
-}
 
 // ── 线路点选器（djblook 式：点国家 → 点代理，免手写）─────────────────────────
 
@@ -385,9 +384,12 @@ export default function PaymentCheckPage() {
         const sep = line.includes("----") ? "----" : line.includes(",") ? "," : null
         if (sep) {
           const [label, token] = line.split(sep, 2)
-          return { accessToken: (token ?? "").trim(), label: (label ?? "").trim() }
+          const tok = (token ?? "").trim()
+          // label 缺失时尝试从 JWT 解出邮箱(用户只粘 "----token" 的边角情况)。
+          return { accessToken: tok, label: (label ?? "").trim() || emailFromJWT(tok) }
         }
-        return { accessToken: line, label: "" }
+        // 纯 token:用 JWT 解出邮箱做展示标签。
+        return { accessToken: line, label: emailFromJWT(line) }
       })
       .filter((t) => t.accessToken.length > 0)
   }, [rawTokens])
@@ -579,7 +581,7 @@ export default function PaymentCheckPage() {
                 value={rawTokens}
                 onChange={(e) => setRawTokens(e.target.value)}
                 rows={7}
-                className="font-mono text-xs"
+                className="max-h-44 resize-none overflow-y-auto font-mono text-xs"
                 placeholder={"user@example.com----eyJhbGciOi...\nuser2@example.com,eyJhbGciOi...\neyJhbGciOi...（纯 token）"}
               />
             </CardContent>
@@ -651,42 +653,104 @@ export default function PaymentCheckPage() {
               <p className="text-xs">检测结果会显示在这里:账号 / 状态 / 各线路金额与支付渠道 / 出口 IP</p>
             </div>
           ) : (
-            <Table>
+<Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-56">账号</TableHead>
+                  <TableHead className="min-w-52">账号</TableHead>
                   <TableHead className="w-24">状态</TableHead>
-                  {routeColumns.map((c) => (
-                    <TableHead key={c} className="min-w-52">{c} 线路</TableHead>
-                  ))}
+                  <TableHead className="w-16">线路</TableHead>
+                  <TableHead className="w-32">Checkout 类型</TableHead>
+                  <TableHead className="w-28">出口地区</TableHead>
+                  <TableHead>支付方式</TableHead>
+                  <TableHead className="w-28">金额</TableHead>
+                  <TableHead className="w-36">处理实体</TableHead>
+                  <TableHead className="w-40">检查时间</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {Object.keys(batch.data.accounts ?? {}).map((id) => {
+                {Object.keys(batch.data.accounts ?? {}).flatMap((id) => {
                   const state = accountState(id)
                   const item = itemById.get(id)
                   const label = item?.label || poolEmailById.get(id) || id
-                  return (
-                    <TableRow key={id}>
-                      <TableCell className="font-mono text-xs">{label}</TableCell>
-                      <TableCell>{stateBadge(state)}</TableCell>
-                      {routeColumns.map((c) => (
-                        <TableCell key={c}>
-                          {state === "done" || state === "failed" || state === "skipped" ? (
-                            <RouteCell route={item?.routes?.[c]} />
-                          ) : (
-                            <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                              {state === "running" ? (
-                                <><Loader2 className="size-3.5 animate-spin text-primary" /> 检测中</>
-                              ) : (
-                                "排队中"
+                  const running = state !== "done" && state !== "failed" && state !== "skipped"
+                  // 该账号要跑的线路:优先已返回的 routes 键,否则用用户点选的 routeColumns。
+                  const itemRouteKeys = Object.keys(item?.routes ?? {})
+                  const cols = itemRouteKeys.length > 0 ? itemRouteKeys : routeColumns
+                  if (running) {
+                    // 运行中:一行占位(跨列显示检测中/排队中)。
+                    return [
+                      <TableRow key={id}>
+                        <TableCell className="font-mono text-xs">{label}</TableCell>
+                        <TableCell>{stateBadge(state)}</TableCell>
+                        <TableCell colSpan={7}>
+                          <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                            {state === "running" ? (
+                              <><Loader2 className="size-3.5 animate-spin text-primary" /> 检测中</>
+                            ) : (
+                              "排队中"
+                            )}
+                          </span>
+                        </TableCell>
+                      </TableRow>,
+                    ]
+                  }
+                  // 已完成:每条线路一行。
+                  return cols.map((c) => {
+                    const r = item?.routes?.[c]
+                    const methods = [...(r?.methods ?? []), ...(r?.methodsInferred ?? [])]
+                    return (
+                      <TableRow key={`${id}-${c}`}>
+                        <TableCell className="font-mono text-xs">{label}</TableCell>
+                        <TableCell>{stateBadge(state)}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">{c}</Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">{checkoutTypeLabel(r?.sessionType)}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {r?.exit || r?.exitIp ? (
+                            <span className="flex items-center gap-1">
+                              {r?.exit || r?.exitIp}
+                              {r?.exitPurity && (
+                                <Badge
+                                  variant={r.exitPurity === "clean" ? "secondary" : "destructive"}
+                                  className="text-[10px]"
+                                >
+                                  {r.exitPurity === "clean" ? "干净" : "机房"}
+                                </Badge>
                               )}
+                            </span>
+                          ) : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {methods.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {methods.map((m) => (
+                                <Badge key={m} variant="outline" className="text-xs">
+                                  {methodLabel(m)}
+                                  {(r?.methodsInferred ?? []).includes(m) ? "(推断)" : ""}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">
+                              {r ? (STATUS_LABELS[r.status] ?? r.status) : "—"}
                             </span>
                           )}
                         </TableCell>
-                      ))}
-                    </TableRow>
-                  )
+                        <TableCell className="text-xs">
+                          {r ? (
+                            <Badge variant={r.zeroStatus === "zero_confirmed" ? "default" : "secondary"} className="text-xs">
+                              {formatAmount(r.amountDue, r.currency)}
+                            </Badge>
+                          ) : "—"}
+                        </TableCell>
+                        <TableCell className="text-xs">{entityLabel(r?.processorEntity)}</TableCell>
+                        <TableCell className="text-muted-foreground text-xs">
+                          {r?.checkedAt ? formatTime(r.checkedAt) : "—"}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 })}
               </TableBody>
             </Table>

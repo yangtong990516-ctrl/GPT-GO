@@ -572,6 +572,7 @@ func (s *Service) checkRouteToken(ctx context.Context, ownerID, accessToken stri
 	}
 
 	result.SessionType = out.SessionType
+	result.ProcessorEntity = out.ProcessorEntity
 	result.Methods = out.Methods
 	result.MethodsInferred = out.MethodsInferred
 	result.AmountDue = out.AmountDue
@@ -717,6 +718,7 @@ func (s *Service) checkRoute(ctx context.Context, src *store.AccountDocument, ro
 	}
 
 	result.SessionType = out.SessionType
+	result.ProcessorEntity = out.ProcessorEntity
 	result.Methods = out.Methods
 	result.MethodsInferred = out.MethodsInferred
 	result.AmountDue = out.AmountDue

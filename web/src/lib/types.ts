@@ -136,6 +136,7 @@ export interface PaymentRouteResult {
   exit: string
   exitPurity?: string
   sessionType?: string
+  processorEntity?: string
   httpStatus: number
   error?: string
   checkedAt: string
