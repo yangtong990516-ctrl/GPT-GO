@@ -17,8 +17,11 @@ type Service struct {
 	dialer      *SessionDialer   // 会话型拨号器（模型 B：通道→新出口 IP）
 	adapter     *ResourceAdapter // 成功落库（account.Create + 邮箱 consume）
 	flowRunner  FlowRunner       // 协议注册执行器（装配层注入，解耦 authflow）
-	// postRegister 注册成功落库后的后台钩子（套餐检查+验活，对齐 _spawn_plan_check_async）。
-	postRegister func(ctx context.Context, accountID, email string)
+	// postRegister 注册成功落库后的钩子（套餐检查+验活，对齐 _spawn_plan_check_async）。
+	// proxyID 是注册时租用的代理 id,供查资格复用同一代理(IP 与注册一致,
+	// 对齐 codex「套餐检查用还在 lease 期内的代理」——IP 不一致会被 OpenAI 风控
+	// 判定异常,影响试用资格发放)。
+	postRegister func(ctx context.Context, accountID, email, proxyURL string)
 }
 
 // ServiceOption 是 Service 的构造选项。
@@ -47,7 +50,7 @@ func WithResourceAdapter(a *ResourceAdapter) ServiceOption {
 //
 // ctx 语义：钩子收到的是【与注册请求脱钩的后台 ctx】（不因注册请求结束而取消），
 // 由装配层提供（挂服务生命周期）。
-func WithPostRegister(hook func(ctx context.Context, accountID, email string)) ServiceOption {
+func WithPostRegister(hook func(ctx context.Context, accountID, email, proxyURL string)) ServiceOption {
 	return func(s *Service) { s.postRegister = hook }
 }
 
@@ -263,13 +266,16 @@ func (s *Service) Run(ctx context.Context, params RunParams) (*RegistrationResul
 	// 5) 清理：邮箱已 consume；代理租约由 defer safeReturnProxy 统一归还（唯一归还点）。
 	step("步骤5/5 清理 ...")
 
-	// 6) 注册成功落库后：后台触发套餐检查+验活（对齐 _spawn_plan_check_async）。
-	//    后台 goroutine 执行，不阻塞注册返回；ctx 与注册请求脱钩（注册请求结束后
-	//    后台任务仍能跑完），由装配层提供挂服务生命周期的 ctx。
+	// 6) 注册成功落库后：触发套餐检查+验活（对齐 codex _auto_plan_check_and_alive）。
+	//    【关键-对齐 codex】查资格必须【在代理归还前、用注册时的同一代理(lease.ID)】,
+	//    保证出口 IP 与注册一致——否则 OpenAI 看到「注册IP≠查询IP」判定异常,影响试用
+	//    资格发放。故此处【同步】调用(defer safeReturnProxy 还没执行,代理仍在 lease
+	//    期内),并传 lease.ID 供查资格复用同一代理。套餐检查是单次轻量请求,同步耗时
+	//    可控(对齐 codex requireTrialOnCheck 的同步语义);验活等重活仍在钩子内部异步。
 	if s.postRegister != nil {
+		// 用独立 ctx(不随注册请求取消),但同步执行——保证代理归还前完成套餐检查。
 		bg := s.bgCtx(ctx)
-		accountID, email := accountID, reserved.Email
-		go func() { s.postRegister(bg, accountID, email) }()
+		s.postRegister(bg, accountID, reserved.Email, dial.ProxyURL)
 	}
 
 	step("注册成功: " + reserved.Email)

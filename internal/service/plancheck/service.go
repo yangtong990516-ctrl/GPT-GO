@@ -205,7 +205,39 @@ func (s *Service) CheckCombined(ctx context.Context, ids []string, proxyID strin
 }
 
 // checkOne 检查单个账号（对齐 _check_combined_one）。
-func (s *Service) checkOne(ctx context.Context, accountID, proxyID string) Item {
+// CheckCombinedWithProxyURL 用【调用方给的完整代理 URL】(含注册时重写的 session,
+// 拨出与注册一致的出口 IP)做套餐+验活,不重新租代理。对齐 codex「查资格用注册时
+// 的同一代理(lease 期内)」——出口 IP 与注册一致,避免 OpenAI 因「注册IP≠查询IP」
+// 判定异常而拒发试用资格。注册成功后由 service 传 dial.ProxyURL 调用。
+func (s *Service) CheckCombinedWithProxyURL(ctx context.Context, ids []string, proxyURL string) (*Result, error) {
+	unique := dedup(ids)
+	if len(unique) == 0 {
+		return &Result{}, nil
+	}
+	items := make([]Item, len(unique))
+	// 串行(同一出口 IP,不能并发撞)。
+	for i, id := range unique {
+		items[i] = s.checkOne(ctx, id, "", proxyURL)
+	}
+	res := &Result{Requested: len(items), Items: items}
+	for _, it := range items {
+		switch it.Status {
+		case "alive":
+			res.Alive++
+		case "dead":
+			res.Dead++
+		case "failed":
+			res.Failed++
+		case "skipped":
+			res.Skipped++
+		}
+	}
+	return res, nil
+}
+
+// checkOne 查单号套餐+验活。directProxyURL 非空时直接用它建会话(不租代理,
+// 出口 IP 与注册一致);否则按 proxyID/注册国租代理。
+func (s *Service) checkOne(ctx context.Context, accountID, proxyID string, directProxyURL ...string) Item {
 	// 1) 原子认领：套餐 + 验活双 running（任一无 token/被认领则跳过）。
 	src, err := s.accounts.ClaimPlanCheck(ctx, accountID, s.staleMinutes)
 	if err != nil || src == nil {
@@ -220,23 +252,29 @@ func (s *Service) checkOne(ctx context.Context, accountID, proxyID string) Item 
 		country = *src.RegistrationCountry
 	}
 
-	// 2) 租代理：指定 proxyID 则按 ID 租（固定代理复查场景），否则按注册国租（对齐
-	//    codex acquire_proxy_by_id / acquire_proxy(country) 分支）。
-	owner := "combined:" + accountID + ":" + randHex(4)
-	var lease *ProxyLease
-	if proxyID != "" {
-		lease, err = s.proxies.AcquireProxyByID(ctx, proxyID, owner, 120)
+	// 2) 代理:优先用调用方给的完整 URL(directProxyURL,出口 IP 与注册一致);
+	//    否则指定 proxyID 按 ID 租,或按注册国租(对齐 codex 分支)。
+	var proxyURL string
+	if len(directProxyURL) > 0 && directProxyURL[0] != "" {
+		proxyURL = directProxyURL[0] // 注册时的同一代理 URL,不租代理
 	} else {
-		lease, err = s.proxies.AcquireProxy(ctx, owner, nil, 120, country, "")
+		owner := "combined:" + accountID + ":" + randHex(4)
+		var lease *ProxyLease
+		if proxyID != "" {
+			lease, err = s.proxies.AcquireProxyByID(ctx, proxyID, owner, 120)
+		} else {
+			lease, err = s.proxies.AcquireProxy(ctx, owner, nil, 120, country, "")
+		}
+		if err != nil || lease == nil {
+			_ = s.accounts.StoreCombinedFailure(ctx, accountID, "no_eligible_proxy", nil, false, false)
+			return Item{ID: accountID, Status: "failed", PlanStatus: "failed", ErrorCode: "no_eligible_proxy"}
+		}
+		defer func() { _ = s.proxies.ReturnProxy(ctx, lease.ID, owner) }()
+		proxyURL = lease.ProxyURL()
 	}
-	if err != nil || lease == nil {
-		_ = s.accounts.StoreCombinedFailure(ctx, accountID, "no_eligible_proxy", nil, false, false)
-		return Item{ID: accountID, Status: "failed", PlanStatus: "failed", ErrorCode: "no_eligible_proxy"}
-	}
-	defer func() { _ = s.proxies.ReturnProxy(ctx, lease.ID, owner) }()
 
 	// 3) 独立 core.Session（httpcloak 非并发安全，一号一会话）+ plan.Check。
-	sess, serr := s.newSession(lease.ProxyURL(), s.sessionTimeout)
+	sess, serr := s.newSession(proxyURL, s.sessionTimeout)
 	if serr != nil {
 		_ = s.accounts.StoreCombinedFailure(ctx, accountID, "plan_request_failed", nil, false, false)
 		return Item{ID: accountID, Status: "failed", PlanStatus: "failed", ErrorCode: "plan_request_failed"}

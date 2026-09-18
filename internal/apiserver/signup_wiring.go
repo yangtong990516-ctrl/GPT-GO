@@ -142,8 +142,11 @@ func (s *Server) wireSignup(ctx context.Context) {
 		rebind.WithRunLogger(rebindLog),
 		rebind.WithLogHub(s.logHub),
 	)
-	postRegister := func(ctx context.Context, accountID, email string) {
-		res, err := planChecker.CheckCombined(ctx, []string{accountID}, "")
+	postRegister := func(ctx context.Context, accountID, email, proxyURL string) {
+		// 套餐检查(同步,用注册时的同一代理 URL proxyURL,含重写 session,出口 IP 与
+		// 注册一致):对齐 codex「查资格用还在 lease 期内的代理」,避免 OpenAI 因
+		// 「注册IP≠查询IP」判定异常而拒发试用资格。这是优惠资格率的关键一环。
+		res, err := planChecker.CheckCombinedWithProxyURL(ctx, []string{accountID}, proxyURL)
 		if err != nil {
 			util.Logger().Warn("注册后套餐/验活检查失败", zap.String("email", email), zap.Error(err))
 		} else if len(res.Items) > 0 {
@@ -155,16 +158,18 @@ func (s *Server) wireSignup(ctx context.Context) {
 				zap.String("errCode", it.ErrorCode))
 		}
 
-		// 密码+2FA 合一开关开启时:注册成功后后台补绑 2FA(重认证+enroll+activate,
-		// 消耗一封邮箱 OTP)。开关关闭则完全跳过(不生成密码、不碰 2FA)。
+		// 密码+2FA 合一开关开启时:注册成功后【异步】补绑 2FA(重认证+enroll+activate,
+		// 消耗一封邮箱 OTP)。重活放后台,不阻塞注册流程的代理释放。开关关闭则跳过。
 		if s.settingsSvc != nil {
 			if st, serr := s.settingsSvc.Get(ctx); serr == nil && st.EnableRegistrationSecurity && s.security != nil {
-				secRes := s.security.EnsureOne(ctx, accountID, "", s.buildEnsure2FAOTPFactory())
-				if secRes.Status == "success" {
-					util.Logger().Info("注册后自动绑 2FA 完成", zap.String("email", email))
-				} else {
-					util.Logger().Warn("注册后自动绑 2FA 失败", zap.String("email", email), zap.String("err", secRes.Error))
-				}
+				go func() {
+					secRes := s.security.EnsureOne(ctx, accountID, "", s.buildEnsure2FAOTPFactory())
+					if secRes.Status == "success" {
+						util.Logger().Info("注册后自动绑 2FA 完成", zap.String("email", email))
+					} else {
+						util.Logger().Warn("注册后自动绑 2FA 失败", zap.String("email", email), zap.String("err", secRes.Error))
+					}
+				}()
 			}
 		}
 	}
