@@ -1,0 +1,37 @@
+# ── 真实配置(含线上密码,绝不提交;只提交 config.example.yaml)──
+config/config.yaml
+
+# ── 运行时产物(PID / 日志 / 数据)──
+.run/
+logs/
+*.log
+data/
+*.pid
+
+# ── 密钥 / 环境(若本地有)──
+*.key
+*.pem
+.env
+.env.local
+
+# ── Go 构建产物 ──
+/server
+/bin/
+*.test
+*.out
+*.prof
+
+# ── Go workspace ──
+go.work
+go.work.sum
+
+# ── 前端 ──
+web/node_modules/
+web/dist/
+
+# ── 编辑器 / 系统 ──
+.DS_Store
+.idea/
+.vscode/
+*.swp
+Thumbs.db

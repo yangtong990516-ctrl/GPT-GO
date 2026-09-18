@@ -1,0 +1,52 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# GPT-GO 服务配置模板
+# ═══════════════════════════════════════════════════════════════════════════
+# 部署步骤:
+#   1. 复制本文件为真实配置:  cp config/config.example.yaml config/config.yaml
+#   2. 按下方注释改成你的真实环境(主要是 mongodb.uri 和 server.host);
+#   3. 启动:  ./start.sh   (首次会自动构建前端 + 后端)
+#
+# 说明:
+#   - config.yaml 已被 .gitignore 忽略,不会被提交,可放心填真实密码;
+#   - 敏感字段(账号 AccessToken / 密码 / 2FA 密钥)由程序自动生成 AES 密钥并加密
+#     存进 MongoDB 的 metadata.secret_key,无需在本文件配置任何密钥;
+#   - 所有字段都有默认值,缺失时按下面对应默认值生效。
+# ═══════════════════════════════════════════════════════════════════════════
+
+server:
+  # 监听地址:
+  #   127.0.0.1  仅本机可访问(本地开发默认,最安全);
+  #   0.0.0.0    监听所有网卡,局域网/公网可访问(线上部署用,务必配合防火墙 + 尽快修改默认控制台密码)。
+  host: 127.0.0.1
+  # 监听端口。start.sh/stop.sh 会从这里读取端口做占用检测,改端口后脚本自动跟随。
+  port: 8000
+
+mongodb:
+  # MongoDB 连接串:
+  #   本地无认证:    mongodb://127.0.0.1:27017
+  #   带账号密码:    mongodb://user:password@host:27017/?authSource=admin
+  #   副本集/集群:   mongodb://host1:27017,host2:27017/?replicaSet=rs0
+  #   云托管(Atlas): mongodb+srv://user:password@cluster0.xxxxx.mongodb.net/
+  uri: mongodb://127.0.0.1:27017
+  # 数据库名(程序会自动建集合/索引,无需手工建库)。
+  database: autoregister
+  # 连接超时(毫秒)。
+  timeout_ms: 10000
+
+app:
+  # 应用标题/版本(仅元信息,对齐原 Python FastAPI 元信息,一般不用改)。
+  title: AutoRegister Local Control Service
+  version: 0.4.0
+
+log:
+  # 日志级别: debug / info / warn / error。线上建议 info,排障临时调 debug。
+  level: info
+  # 是否以 JSON 格式输出日志(true 便于日志系统采集;false 为人类可读)。
+  json: false
+
+# ── 环境变量覆盖(可选,优先级高于本文件)─────────────────────────────────────
+# 以下环境变量可覆盖对应行为(便于容器/CI 注入,不改配置文件):
+#   GPT_GO_WEB_DIST        前端产物目录(默认 web/dist);前后端分离部署时指向外部 dist。
+#   GPT_GO_AUTH_DISABLED=1 关闭控制台登录门禁(仅本地调试用,线上切勿开启)。
+#   GPT_GO_SEED_DEMO=1     启动时灌入演示数据(仅体验用,线上不要开)。
+#   GPT_GO_ICLOUD_DISABLE_BG=1  禁用 iCloud 模块后台任务。
