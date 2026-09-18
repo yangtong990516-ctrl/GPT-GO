@@ -41,11 +41,11 @@ const NAV = [
   { to: "/", label: "总览", icon: LayoutDashboard, end: true },
   { to: "/runs", label: "注册运行", icon: Rocket },
   { to: "/accounts", label: "账号池", icon: Users },
-  { to: "/payment-check", label: "支付检测", icon: CreditCard },
-  { to: "/rebind", label: "邮箱换绑", icon: MailQuestion },
   { to: "/emails", label: "邮箱池", icon: Mail },
   { to: "/mailboxes", label: "邮箱开通", icon: Inbox },
   { to: "/icloud", label: "iCloud 邮箱", icon: Cloud },
+  { to: "/rebind", label: "邮箱换绑", icon: MailQuestion },
+  { to: "/payment-check", label: "支付检测", icon: CreditCard },
   { to: "/settings", label: "系统设置", icon: Settings2 },
 ]
 
@@ -237,8 +237,8 @@ export default function Layout() {
   return (
     <div className="bg-background text-foreground flex min-h-svh">
       {/* Sidebar */}
-      <aside className="bg-card sticky top-0 flex h-svh w-56 shrink-0 flex-col border-r">
-        <div className="flex items-center gap-2 px-4 py-4">
+      <aside className="bg-card sticky top-0 flex h-svh w-52 shrink-0 flex-col border-r">
+        <div className="flex items-center gap-2 px-3 py-4">
           <div className="bg-primary text-primary-foreground flex size-8 items-center justify-center rounded-lg">
             <Activity className="size-4" />
           </div>
@@ -248,7 +248,7 @@ export default function Layout() {
           </div>
         </div>
         <Separator />
-        <nav className="flex-1 space-y-1 overflow-y-auto p-2">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
