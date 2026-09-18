@@ -28,8 +28,10 @@ UNAME_S  := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
   CLANG   := $(shell command -v clang-19 || command -v clang-18 || command -v clang)
   CLANGXX := $(shell command -v clang++-19 || command -v clang++-18 || command -v clang++)
-  export CC  ?= $(CLANG)
-  export CXX ?= $(CLANGXX)
+  # 强制赋值(不用 ?=,否则被 make 内建 CC=cc / CXX=g++ 挡住导致 gcc 链不上 libc++);
+  # 命令行仍可用 `make build CC=clang-18` 覆盖。
+  export CC  := $(CLANG)
+  export CXX := $(CLANGXX)
 endif
 
 # v8go 的预编译静态库 libv8.a 不随 go module 下发，需先 fetch 到 deps/{os}_{arch}/。
