@@ -71,7 +71,7 @@ import {
   useUpdateEmailStatus,
 } from "@/lib/queries"
 import type { EmailRecord, EmailStatus } from "@/lib/types"
-import { downloadText, HttpError } from "@/lib/api"
+import { copyText, downloadText, HttpError } from "@/lib/api"
 import { formatTime } from "@/lib/format"
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -210,12 +210,14 @@ export default function EmailsPage() {
     exportEmails.mutate(
       { scope: "selected", ids: Array.from(selected) },
       {
-        onSuccess: (r) => {
+        onSuccess: async (r) => {
           if (mode === "copy") {
-            navigator.clipboard
-              .writeText(r.content)
-              .then(() => toast.success(`已复制 ${r.count} 个邮箱(${r.format ?? "文本"}格式)`))
-              .catch(() => toast.error("复制失败,请检查浏览器剪贴板权限"))
+            const ok = await copyText(r.content)
+            if (ok) {
+              toast.success(`已复制 ${r.count} 个邮箱`)
+            } else {
+              toast.error("复制失败,请检查浏览器剪贴板权限")
+            }
           } else {
             downloadText(r.filename, r.content)
             toast.success(`已导出 ${r.count} 个邮箱`)

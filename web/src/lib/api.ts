@@ -78,3 +78,34 @@ export function downloadText(filename: string, content: string) {
   a.remove()
   URL.revokeObjectURL(url)
 }
+
+// copyText 把文本写入剪贴板。优先 navigator.clipboard(需安全上下文 https/localhost);
+// 在 http:// 等非安全上下文 navigator.clipboard 为 undefined,降级为隐藏 textarea +
+// document.execCommand("copy"),保证纯文本始终可复制。返回是否成功。
+export async function copyText(content: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(content)
+      return true
+    } catch {
+      // 剪贴板权限被拒等,继续走降级
+    }
+  }
+  try {
+    const ta = document.createElement("textarea")
+    ta.value = content
+    // 防滚动跳动 + 不可见
+    ta.style.position = "fixed"
+    ta.style.top = "0"
+    ta.style.left = "0"
+    ta.style.opacity = "0"
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    const ok = document.execCommand("copy")
+    ta.remove()
+    return ok
+  } catch {
+    return false
+  }
+}
