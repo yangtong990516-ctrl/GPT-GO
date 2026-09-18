@@ -72,7 +72,7 @@ import {
   useHealAccount,
 } from "@/lib/queries"
 import type { AccountRecord } from "@/lib/types"
-import { HttpError } from "@/lib/api"
+import { HttpError, copyText } from "@/lib/api"
 import { campaignLabel, countryLabel, formatTime } from "@/lib/format"
 
 // ── Cell renderers ────────────────────────────────────────────────────────────
@@ -697,6 +697,20 @@ export default function AccountsPage() {
     )
   }
 
+  // 复制到剪贴板(带 toast;copyText 已处理 http 非安全上下文降级)。
+  const copyField = async (label: string, value: string) => {
+    if (!value) {
+      toast.info("无内容可复制", { description: `该账号还没有${label}` })
+      return
+    }
+    const ok = await copyText(value)
+    if (ok) {
+      toast.success(`已复制${label}`)
+    } else {
+      toast.error("复制失败", { description: "浏览器剪贴板不可用,请手动选择复制" })
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -974,7 +988,7 @@ export default function AccountsPage() {
                             disabled={ensure2FA.isPending}
                             onClick={() => runEnsure2FAOne(acc.id)}
                           >
-                            <ShieldCheck /> 补 2FA
+                            <ShieldCheck /> 补充密码 + 2FA
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={healAccount.isPending}
@@ -983,17 +997,17 @@ export default function AccountsPage() {
                             <RefreshCw /> 续期 AT
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => navigator.clipboard.writeText(acc.totpSecret || "")}
+                            onClick={() => copyField("2FA 密钥", acc.totpSecret || "")}
                           >
                             <KeyRound /> 复制 2FA 密钥
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => navigator.clipboard.writeText(acc.emailAccessUrl)}
+                            onClick={() => copyField("取件 URL", acc.emailAccessUrl)}
                           >
                             <Link2 /> 复制取件 URL
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => navigator.clipboard.writeText(acc.email)}
+                            onClick={() => copyField("邮箱", acc.email)}
                           >
                             <Copy /> 复制邮箱
                           </DropdownMenuItem>

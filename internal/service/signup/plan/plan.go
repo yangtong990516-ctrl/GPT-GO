@@ -127,6 +127,8 @@ func parseTokenClaims(token string) tokenClaims {
 // 只需一个 GET（XHR 语义）——对齐 check_account_plan_curl 用 session.get(...)。
 type Session interface {
 	Get(ctx context.Context, url, referer string) (*core.Response, error)
+	// GetWithHeaders 在公共头之上合并额外头(accounts/check 需要 Authorization Bearer)。
+	GetWithHeaders(ctx context.Context, url, referer string, extra map[string]string) (*core.Response, error)
 }
 
 // Check 执行一次套餐检查（对齐 check_account_plan_curl 的单次语义，重试由上层
@@ -149,7 +151,10 @@ func Check(ctx context.Context, sess Session, accessToken, tzOffsetMin string) (
 	}
 	u := AccountsCheckURL + "?timezone_offset_min=" + url.QueryEscape(tzOffsetMin)
 
-	resp, err := sess.Get(ctx, u, "https://chatgpt.com/")
+	// accounts/check 需要 Authorization Bearer(access_token);普通 Get 不带认证头会 401。
+	resp, err := sess.GetWithHeaders(ctx, u, "https://chatgpt.com/", map[string]string{
+		"Authorization": "Bearer " + token,
+	})
 	if err != nil {
 		return nil, &Error{Code: "plan_request_failed", Retryable: true}
 	}

@@ -52,6 +52,11 @@ func (m *mockSession) Get(ctx context.Context, url, referer string) (*core.Respo
 	}
 	return core.NewResponse(st, []byte(m.body)), nil
 }
+
+// GetWithHeaders 与 Get 同行为(测试桩不关心 Authorization 头)。
+func (m *mockSession) GetWithHeaders(ctx context.Context, url, referer string, extra map[string]string) (*core.Response, error) {
+	return m.Get(ctx, url, referer)
+}
 func (m *mockSession) Close() {}
 
 // sessionReturning 构造返回固定 accounts/check body 的会话工厂。
