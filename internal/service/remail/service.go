@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -566,12 +567,22 @@ func truncate(s string, n int) string {
 }
 
 // strVal safely extracts a string from an any map value.
+//
+// JSON 数字被 UnmarshalLenient 解为 float64,fmt.Sprint 对 7 位及以上整数会输出
+// 科学计数法(如 6569953 -> "6.569953e+06"),用作 afterId/orderNo 会被 Remail 判为
+// 非法参数(HTTP 400)。故对 float64 的整数值用十进制无科学计数格式。
 func strVal(v any) string {
 	if v == nil {
 		return ""
 	}
 	if s, ok := v.(string); ok {
 		return s
+	}
+	if f, ok := v.(float64); ok {
+		if f == math.Trunc(f) && !math.IsInf(f, 0) {
+			return strconv.FormatInt(int64(f), 10)
+		}
+		return strconv.FormatFloat(f, 'f', -1, 64)
 	}
 	return fmt.Sprint(v)
 }
