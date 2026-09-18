@@ -179,9 +179,14 @@ func (s *Service) Run(ctx context.Context, params RunParams) (*RegistrationResul
 		log.Emit(LogError, "dial_failed", "拨号失败: "+err.Error(), reserved.Email, nil)
 		return nil, NewRegistrationError("no_eligible_proxy", reservedEmailOf(reserved), err)
 	}
-	step("拨号成功: 出口IP=" + dial.EgressIP + " 国家=" + dial.Country)
-	log.Emit(LogInfo, "dial_succeeded", "拨号成功 出口IP="+dial.EgressIP+" 国家="+dial.Country, reserved.Email, map[string]any{
-		"country": dial.Country, "timezone": dial.TimezoneID,
+	step("拨号成功: 出口IP=" + dial.EgressIP + " 国家=" + dial.Country + " 时区=" + dial.TimezoneID)
+	log.Emit(LogInfo, "dial_succeeded", "拨号成功(环境已按出口实测绑定)", reserved.Email, map[string]any{
+		"egressIP":   dial.EgressIP,
+		"country":    dial.Country,      // 实测国家(GeoIP,非写死)
+		"timezone":   dial.TimezoneID,   // 实测时区(GeoIP,喂 JS Intl/Date)
+		"target":     params.Country,    // 目标国家(注册请求指定,如 JP)
+		"countryOk":  params.Country == "" || dial.Country == params.Country, // 实测是否命中目标
+		"channelId":  dial.ChannelID,
 	})
 	// 注册结束（无论成败）释放出口 IP 的并发额度（对齐 codex-auto _release_exit_ip）。
 	// 即时回收额度，让后续账号可复用该 IP（cap>1 时），不必等 TTL 自然过期。
@@ -217,6 +222,10 @@ func (s *Service) Run(ctx context.Context, params RunParams) (*RegistrationResul
 		OTPTimeout: params.OTPTimeout,
 		Solver:     s.solver,
 		OnPassword: nil, // 落盘在 PersistAccount 统一做
+		// 环境指纹落日志:验证目标环境(如 JP)是否配对(时区/国家/语言/UA/出口IP)。
+		OnEnv: func(env map[string]any) {
+			log.Emit(LogInfo, "env_fingerprint", "注册环境指纹(GeoIP 实测绑定)", reserved.Email, env)
+		},
 	})
 	if err != nil {
 		// 失败清理：按错误码分流邮箱（可复用归还 / 不可复用标记）；代理租约由
@@ -478,6 +487,9 @@ type FlowRequest struct {
 	OTPTimeout int             // OTP 等待超时（秒）
 	Solver     sentinel.Solver // Sentinel PoW 求解器（P4）
 	OnPassword func(email, password string)
+	// OnEnv 可选:flow 装配后回传 Identity 环境指纹(UA/Preset/AcceptLang/时区/国家),
+	// 供 service 层写 runlog(验证 JP 等目标环境是否配对)。
+	OnEnv func(env map[string]any)
 }
 
 // FlowRunner 执行一次协议注册，返回最小结果（落库用）。由装配层注入。

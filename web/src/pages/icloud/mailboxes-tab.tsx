@@ -2095,7 +2095,7 @@ export function MailboxesTab({ enabled }: { enabled: boolean }) {
               onChange={(e) => setBulkDeleteEmails(e.target.value)}
               placeholder={"example1@icloud.com\nexample2@icloud.com"}
               spellCheck={false}
-              className="min-h-32 font-mono text-xs"
+              className="max-h-64 resize-none overflow-y-auto font-mono text-xs"
             />
             <p className="text-muted-foreground text-xs">已识别 {bulkDeleteEmailCount} 个邮箱;重复地址会自动合并。</p>
             {bulkDeleteError && (
@@ -2135,7 +2135,7 @@ export function MailboxesTab({ enabled }: { enabled: boolean }) {
                 onChange={(e) => setQuickEdit((p) => ({ ...p, note: e.target.value }))}
                 maxLength={1000}
                 placeholder="请输入邮箱备注,留空可清除备注"
-                className="min-h-24 resize-none"
+                className="max-h-48 resize-none overflow-y-auto"
               />
             </div>
           ) : (

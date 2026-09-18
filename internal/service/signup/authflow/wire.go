@@ -38,6 +38,27 @@ func NewFlowRunner(solver sentinel.Solver) signup.FlowRunner {
 		}
 		defer flow.Close()
 
+		// 环境指纹回传(供 service 层写 runlog):Identity 的 UA/Preset/AcceptLang/时区/国家,
+		// 验证目标环境(如 JP)是否配对。GeoIP 实测国家/时区在 Bootstrap 装配时已绑定。
+		if req.OnEnv != nil {
+			id := flow.Boot().Identity
+			env := map[string]any{
+				"preset":      id.PresetName,
+				"userAgent":   id.UserAgent,
+				"acceptLang":  id.AcceptLang,
+				"timezone":    id.Timezone,
+				"country":     id.CountryCode,
+				"egressIP":    req.EgressIP,
+				"screen":      id.Screen,
+				"browserType": string(id.Family),
+			}
+			if g := flow.Boot().Geo; g != nil {
+				env["geoCountry"] = g.CountryCode
+				env["geoTimezone"] = g.TimezoneID
+			}
+			req.OnEnv(env)
+		}
+
 		// 关键：把 core.Session 包成 ChallengeFetcher 注入 solver（challenge 与 TLS 同源）。
 		// 若 solver 支持 SetFetcher/WithFetcher 则注入；否则 solver 用其默认（见 NOTE 待办）。
 		InjectCoreFetcher(sv, flow.Boot().Session)

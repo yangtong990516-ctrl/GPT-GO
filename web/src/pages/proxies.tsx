@@ -111,6 +111,11 @@ function ImportDialog({
   const [raw, setRaw] = React.useState("")
   const [country, setCountry] = React.useState("")
   const [group, setGroup] = React.useState("")
+  // 本次粘贴的非空行数(实时统计)。
+  const proxyLineCount = React.useMemo(
+    () => raw.split("\n").filter((l) => l.trim() !== "").length,
+    [raw],
+  )
   const importProxies = useImportProxies()
 
   const submit = () => {
@@ -145,11 +150,16 @@ function ImportDialog({
         </DialogHeader>
         <div className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="px-raw">原始文本</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="px-raw">原始文本</Label>
+              <span className="text-xs text-muted-foreground">
+                本次粘贴 <span className="font-semibold text-foreground">{proxyLineCount}</span> 条
+              </span>
+            </div>
             <Textarea
               id="px-raw"
               rows={10}
-              className="font-mono text-xs"
+              className="max-h-64 resize-none overflow-y-auto font-mono text-xs"
               placeholder={"socks5://user:pass@1.2.3.4:1080\nhttp://5.6.7.8:8080"}
               value={raw}
               onChange={(e) => setRaw(e.target.value)}
