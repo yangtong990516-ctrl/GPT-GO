@@ -320,7 +320,7 @@ function ProgressBar({ run }: { run: RunState }) {
             <span className="size-2 rounded-full bg-amber-500" /> 取消 {run.cancelled}
           </span>
         )}
-        <span className="ml-auto">成功率 {Math.round(run.successRate * 100)}%</span>
+        <span className="ml-auto">成功率 {Math.round(run.successRate)}%</span>
       </div>
     </div>
   )

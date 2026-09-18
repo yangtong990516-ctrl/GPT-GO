@@ -193,12 +193,14 @@ func (h *Handler) createRun(c *gin.Context) {
 	// 设计:N 个并发账号共用一个聚合器,高频「步骤/租代理/预留邮箱」等合并为周期性
 	// progress 汇总(N=1000 也只有几十条),失败仍逐条留痕(要排查)。详见
 	// runlog_aggregator.go。底层 RunLogger 仍可通过 agg.RunLogger() 取(下钻)。
-	var rlog *signup.RunLogger       // 直写句柄(终态用)
-	var agg *signup.RunLogAggregator // 聚合器(Log/Step/Progress 走它)
+	var rlog *signup.RunLogger // 直写句柄(终态用)
+	// eventLog 是实际写日志的句柄:直接用 rlog 直通,逐条展示每步(放弃聚合,
+	// 用户要看到注册全程的每个步骤/租代理/预留邮箱/拨号等细节)。
+	var eventLog signup.RunEventLogger
 	if h.logHub != nil {
 		rlog = h.logHub.Logger(runID)
-		agg = signup.NewRunLogAggregator(rlog, signup.DefaultAggregatorConfig())
-		agg.Emit(signup.LogInfo, "run_created", "批量注册任务已创建", "", map[string]any{
+		eventLog = rlog
+		eventLog.Emit(signup.LogInfo, "run_created", "批量注册任务已创建", "", map[string]any{
 			"requestedCount": req.Count, "concurrency": st.Concurrency,
 			"country": req.Country, "group": req.Group, "emailSource": req.EmailSource,
 		})
@@ -214,8 +216,8 @@ func (h *Handler) createRun(c *gin.Context) {
 			OTPTimeout:         req.OTPTimeout,
 			TaskTimeoutSeconds: st.TaskTimeoutSeconds, // ← settings 注入（单号超时）
 			Dialer:             dialer,                // ← settings 注入（出口IP上限）
-			Log:                agg,                   // ← 聚合日志器(service 高频事件被汇总,防刷屏)
-			Step:               nil,                   // 下方统一设为 agg.StepLogger()
+			Log:                eventLog,              // ← 日志器(小批次直通/大批次聚合)
+			Step:               nil,                   // 下方统一设为 eventLog 的 step 回调
 			EnableRegistrationSecurity: st.EnableRegistrationSecurity, // ← settings 注入(密码+2FA 合一开关)
 		},
 		Count:       req.Count,
@@ -223,9 +225,12 @@ func (h *Handler) createRun(c *gin.Context) {
 		StopOnError: req.StopOnError,
 		Cancel:      c.Request.Context().Done(), // 客户端断开即取消（对齐 cancel_event）
 	}
-	// step 文本也写入聚合日志器(protocol_step 被合并为进度汇总)。
-	if agg != nil {
-		params.Step = agg.StepLogger()
+	// step 文本逐条写入日志(protocol_step 直通,每步可见)。
+	if eventLog != nil {
+		el := eventLog
+		params.Step = func(message string) {
+			el.Emit(signup.LogInfo, "protocol_step", message, "", nil)
+		}
 	}
 
 	// ── 内存进度跟踪：批次开始建 tracker，每账号完成实时更新，结束定终态 ──
@@ -238,16 +243,16 @@ func (h *Handler) createRun(c *gin.Context) {
 		if tracker != nil {
 			tracker.Track(item.OK, item.Cancelled)
 		}
-		if agg == nil {
+		if eventLog == nil {
 			return
 		}
 		switch {
 		case item.OK:
-			// account_succeeded 由 service 已发(经聚合器合并)；此处不重复。
+			// account_succeeded 由 service 已发；此处不重复。
 		case item.Cancelled:
-			agg.Emit(signup.LogWarning, "account_cancelled", "账号注册被取消", item.Email, map[string]any{"index": item.Index})
+			eventLog.Emit(signup.LogWarning, "account_cancelled", "账号注册被取消", item.Email, map[string]any{"index": item.Index})
 		default:
-			agg.Emit(signup.LogError, "account_failed", "账号注册失败: "+item.Error, item.Email, map[string]any{
+			eventLog.Emit(signup.LogError, "account_failed", "账号注册失败: "+item.Error, item.Email, map[string]any{
 				"index": item.Index, "code": item.Code,
 			})
 		}
@@ -259,11 +264,7 @@ func (h *Handler) createRun(c *gin.Context) {
 		cancelled := c.Request.Context().Err() != nil || err != nil
 		tracker.Finish(cancelled)
 	}
-	// 终态:先 Close 聚合器(刷出未发的过程汇总 + 停表),再直写终态事件。
-	// 终态事件用 rlog 直通(不聚合),保证 run_completed/failed 必达且触发 SSE 关闭。
-	if agg != nil {
-		agg.Close()
-	}
+	// 终态事件直写(触发 SSE 关闭)。
 	if rlog != nil {
 		switch {
 		case err != nil:
