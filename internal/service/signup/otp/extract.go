@@ -16,6 +16,11 @@ var (
 	reTSBoundary = regexp.MustCompile(`m=\+\d+\.\d+`)
 	// reTSParam 剔除时间戳参数（t=XXXXXXXXXX 形式）。
 	reTSParam = regexp.MustCompile(`\bt=\d+\b`)
+	// reStyleBlock/reScriptBlock/reHeadBlock 剥离 <style>/<script>/<head> 块
+	//（防 CSS 颜色值/脚本数字被误当验证码；DOTALL 跨行，非贪婪）。
+	reStyleBlock  = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	reScriptBlock = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	reHeadBlock   = regexp.MustCompile(`(?is)<head[^>]*>.*?</head>`)
 	// reOTP6 兜底匹配 6 位数字（前后不能是 # 或其它数字，避免 hex 颜色/长数字误判）。
 	// 注：Go RE2 不支持负向先行 (?!...)，故用「前缀非数字非# + 捕获6位 + 后文非数字或结尾」
 	// 的等价写法：组1=前缀分隔符，组2=6位码，后随必须是非数字或字符串结束。
@@ -54,6 +59,13 @@ func ExtractOTP(raw string, codePattern *regexp.Regexp) string {
 	body = reEmailAddr.ReplaceAllString(body, "")
 	body = reTSBoundary.ReplaceAllString(body, "")
 	body = reTSParam.ReplaceAllString(body, "")
+
+	// 4.5) 剔除 <style>/<script>/<head> 整块(治本):ChatGPT OTP 邮件模板头部有
+	//    大量 CSS 颜色值(color:#667085 / #202123 / #353740),是 6 位十六进制,
+	//    会被误当验证码 → wrong_email_otp_code。真码在邮件正文可见区,先剥掉这些块。
+	body = reStyleBlock.ReplaceAllString(body, " ")
+	body = reScriptBlock.ReplaceAllString(body, " ")
+	body = reHeadBlock.ReplaceAllString(body, " ")
 
 	// 5) 自定义正则：调用方明确给了格式,取第一个匹配（保持兼容）。
 	if codePattern != nil {
@@ -153,8 +165,10 @@ type otpCandidate struct {
 	end   int
 }
 
-// reCandidate6 匹配独立 6 位数字(前后非数字)。
-var reCandidate6 = regexp.MustCompile(`(^|[^\d])(\d{6})($|[^\d])`)
+// reCandidate6 匹配独立 6 位数字(前后非数字,前缀也不能是 # 防 CSS 颜色值
+// 如 .meta{color:#667085} —— ChatGPT 邮件模板头部有大量 color:#XXXXXX,是 wrong
+// email_otp_code 的统一根因:颜色码被误当验证码提交)。
+var reCandidate6 = regexp.MustCompile(`(^|[^\d#])(\d{6})($|[^\d])`)
 
 // bestOTPByScore 收集全部 6 位候选,剔除平凡/日期,按打分选最佳。
 // 打分(对齐 codex _score):独立成词+3、软提示词上下文+1、位置靠后轻微加权。
