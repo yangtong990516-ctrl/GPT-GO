@@ -18,6 +18,7 @@ import {
   useAccounts,
   useCancelRebind,
   useEmails,
+  useProxyCountries,
   useRebindItems,
   useRebindPools,
   useRebindStatus,
@@ -451,6 +452,8 @@ export default function RebindPage() {
   const [concurrency, setConcurrency] = React.useState(2)
   // 资源池（可用邮箱/代理数量）。
   const pools = useRebindPools(country || undefined)
+  // 代理池国家列表(动态:国家 + 代理数),替换原写死的 越南/菲律宾/美国。
+  const proxyCountries = useProxyCountries()
 
   // 预设账号自动配对（从账号池跳转过来时）。
   React.useEffect(() => {
@@ -589,9 +592,11 @@ export default function RebindPage() {
               onChange={(e) => setCountry(e.target.value)}
             >
               <option value="">任意</option>
-              <option value="VN">越南（VN）</option>
-              <option value="PH">菲律宾（PH）</option>
-              <option value="US">美国（US）</option>
+              {(proxyCountries.data ?? []).map((c) => (
+                <option key={c.country} value={c.country}>
+                  {c.country}（{c.enabled} 条代理）
+                </option>
+              ))}
             </select>
           </div>
           <div className="flex items-center gap-2">
