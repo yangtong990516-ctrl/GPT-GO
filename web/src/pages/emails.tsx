@@ -1,6 +1,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import {
+  Copy,
   Download,
   MailPlus,
   MoreHorizontal,
@@ -163,6 +164,7 @@ export default function EmailsPage() {
   const [importOpen, setImportOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [resetOpen, setResetOpen] = React.useState(false)
+  const [exportOpen, setExportOpen] = React.useState(false)
 
   const list = useEmails({ page, pageSize, q: q || undefined, source, status })
   const bulkDelete = useBulkDeleteEmails()
@@ -189,19 +191,40 @@ export default function EmailsPage() {
       return next
     })
 
-  const doExport = (scope: "selected" | "all", single?: EmailRecord) => {
-    const payload = single
-      ? { scope: "single", ids: [single.id] }
-      : scope === "selected"
-        ? { scope: "selected", ids: Array.from(selected) }
-        : { scope: "all" }
-    exportEmails.mutate(payload, {
-      onSuccess: (r) => {
-        downloadText(r.filename, r.content)
-        toast.success(`已导出 ${r.count} 个邮箱`)
+  // 单行导出仍直接下载(保持原有行为)。
+  const doExportSingle = (single: EmailRecord) => {
+    exportEmails.mutate(
+      { scope: "single", ids: [single.id] },
+      {
+        onSuccess: (r) => {
+          downloadText(r.filename, r.content)
+          toast.success(`已导出 ${r.count} 个邮箱`)
+        },
+        onError: (e) => toast.error(e instanceof HttpError ? e.message : "导出失败"),
       },
-      onError: (e) => toast.error(e instanceof HttpError ? e.message : "导出失败"),
-    })
+    )
+  }
+
+  // 导出已选:弹窗内「复制」或「下载」,统一先取导出数据再执行对应动作。
+  const doExportSelected = (mode: "copy" | "download") => {
+    exportEmails.mutate(
+      { scope: "selected", ids: Array.from(selected) },
+      {
+        onSuccess: (r) => {
+          if (mode === "copy") {
+            navigator.clipboard
+              .writeText(r.content)
+              .then(() => toast.success(`已复制 ${r.count} 个邮箱(${r.format ?? "文本"}格式)`))
+              .catch(() => toast.error("复制失败,请检查浏览器剪贴板权限"))
+          } else {
+            downloadText(r.filename, r.content)
+            toast.success(`已导出 ${r.count} 个邮箱`)
+          }
+          setExportOpen(false)
+        },
+        onError: (e) => toast.error(e instanceof HttpError ? e.message : "导出失败"),
+      },
+    )
   }
 
   const doDelete = () => {
@@ -236,7 +259,7 @@ export default function EmailsPage() {
           <>
             {selected.size > 0 && (
               <>
-                <Button variant="outline" size="sm" onClick={() => doExport("selected")}>
+                <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
                   <Download /> 导出已选（{selected.size}）
                 </Button>
                 <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
@@ -251,7 +274,22 @@ export default function EmailsPage() {
             >
               <RotateCcw /> 重置失败
             </Button>
-            <Button variant="outline" size="sm" onClick={() => doExport("all")}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                exportEmails.mutate(
+                  { scope: "all" },
+                  {
+                    onSuccess: (r) => {
+                      downloadText(r.filename, r.content)
+                      toast.success(`已导出 ${r.count} 个邮箱`)
+                    },
+                    onError: (e) => toast.error(e instanceof HttpError ? e.message : "导出失败"),
+                  },
+                )
+              }
+            >
               <Download /> 导出全部
             </Button>
             <Button size="sm" onClick={() => setImportOpen(true)}>
@@ -378,7 +416,7 @@ export default function EmailsPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => doExport("selected", em)}>
+                        <DropdownMenuItem onClick={() => doExportSingle(em)}>
                           导出此邮箱
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -469,6 +507,32 @@ export default function EmailsPage() {
       </div>
 
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
+
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>导出已选（{selected.size}）</DialogTitle>
+            <DialogDescription>
+              选择导出方式:复制到剪贴板,或下载为文件。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => doExportSelected("copy")}
+              disabled={exportEmails.isPending}
+            >
+              <Copy /> {exportEmails.isPending ? "处理中…" : "复制"}
+            </Button>
+            <Button
+              onClick={() => doExportSelected("download")}
+              disabled={exportEmails.isPending}
+            >
+              <Download /> {exportEmails.isPending ? "处理中…" : "下载"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
