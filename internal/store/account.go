@@ -89,6 +89,14 @@ type AccountDocument struct {
 	HasActiveSubscription *bool      `bson:"hasActiveSubscription"`
 	PlanRenewsAt          *time.Time `bson:"planRenewsAt"`
 	PromotionCampaignID   *string    `bson:"promotionCampaignId"` // plus 试用活动 id（eligible_promo_campaigns.plus.id）
+
+	// ── token-heal（session cookie 续期）字段 ──
+	// SessionToken 是 __Secure-next-auth.session-token cookie（约 3 个月，续期凭证；敏感）。
+	SessionToken string `bson:"sessionToken"`
+	// CookieHeader 是注册时 Cookie 头（含 oai-did 指纹，heal 回灌三路自洽；敏感）。
+	CookieHeader string `bson:"cookieHeader"`
+	// SessionUpdatedAt 是 session cookie 滚动轮换后的回写时间。
+	SessionUpdatedAt *time.Time `bson:"sessionUpdatedAt"`
 }
 
 // AccountQuery mirrors the list_accounts mongo_query filter.
@@ -182,6 +190,20 @@ type AccountStore interface {
 	MarkRebindSuccess(ctx context.Context, id string, u RebindSuccessUpdate) error
 	// MarkRebindFailure 换绑失败落库：rebindStatus=failed + rebindError；保留原邮箱。
 	MarkRebindFailure(ctx context.Context, id, errCode string) error
+
+	// ── token-heal（session cookie 续期）──
+
+	// StoreSessionHeal 续期成功落库：新 accessToken + 过期/更新时间 + 滚动后的 sessionToken
+	// + sessionUpdatedAt；同时清 accessTokenMissing/atRefillStatus/atRefillError（账号复活）。
+	// sessionToken 非空才回写（滚动轮换抓到新值才更新，否则保留旧 cookie）。
+	StoreSessionHeal(ctx context.Context, id string, u SessionHealUpdate) error
+}
+
+// SessionHealUpdate 是 StoreSessionHeal 的入参（token-heal 续期成功的写入集）。
+type SessionHealUpdate struct {
+	AccessToken          string     // 新 access_token（/api/auth/session mint）
+	AccessTokenExpiresAt *time.Time // 新 AT 过期时间（JWT exp 解析）
+	SessionToken         string     // 滚动后的新 session cookie（非空才回写）
 }
 
 // RebindEmailChangedUpdate 是 MarkRebindEmailChanged 的入参。
@@ -718,6 +740,37 @@ func (m *MockAccountStore) StorePassword(_ context.Context, id string, u TotpUpd
 		if u.AccessTokenExpiresAt != nil {
 			d.AccessTokenExpiresAt = u.AccessTokenExpiresAt
 		}
+	}
+	return nil
+}
+
+// StoreSessionHeal 续期成功落库(Mock):新 AT + 滚动 session cookie,清 AT 失效标记。
+func (m *MockAccountStore) StoreSessionHeal(_ context.Context, id string, u SessionHealUpdate) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i := m.findIdx(id)
+	if i < 0 {
+		return &AccountNotFoundError{ID: id}
+	}
+	tok := strings.TrimSpace(u.AccessToken)
+	if tok == "" {
+		return &AccountInvalidUpdateError{ID: id, Reason: "accessToken 不能为空"}
+	}
+	d := &m.docs[i]
+	now := time.Now().UTC()
+	d.AccessToken = tok
+	d.AccessTokenConfigured = true
+	d.AccessTokenUpdatedAt = &now
+	d.AccessTokenMissing = false
+	d.AtRefillStatus = nil
+	d.AtRefillError = nil
+	d.AtRefillErrorAt = nil
+	if u.AccessTokenExpiresAt != nil {
+		d.AccessTokenExpiresAt = u.AccessTokenExpiresAt
+	}
+	if st := strings.TrimSpace(u.SessionToken); st != "" {
+		d.SessionToken = st
+		d.SessionUpdatedAt = &now
 	}
 	return nil
 }

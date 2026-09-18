@@ -149,6 +149,12 @@ type AccountRecord struct {
 	PlanCheckStatus *string `json:"planCheckStatus"`
 	// 套餐检查时间；【展示】「优惠资格」列 tooltip："查询时间：xxx"
 	PlanCheckedAt *time.Time `json:"planCheckedAt"`
+	// SessionToken 是 __Secure-next-auth.session-token cookie（约 3 个月，token-heal 续期凭证）；【不展示】
+	SessionToken string `json:"-" bson:"sessionToken"`
+	// CookieHeader 是注册时 Cookie 头（含 oai-did 指纹，heal 回灌三路自洽）；【不展示】
+	CookieHeader string `json:"-" bson:"cookieHeader"`
+	// SessionUpdatedAt 是 session cookie 滚动轮换后的回写时间；【不展示】
+	SessionUpdatedAt *time.Time `json:"-" bson:"sessionUpdatedAt"`
 	// 套餐检查错误码；【展示】「优惠资格」列 tooltip："错误码：xxx"
 	PlanCheckErrorCode *string `json:"planCheckErrorCode"`
 	// 订阅套餐名；【展示】「优惠资格」列（campaign 相关）
@@ -226,6 +232,10 @@ type AccountCreate struct {
 	RefreshToken *string `json:"-"` // 敏感，不回显前端
 	// AccessTokenExpiresAt 是 access_token 过期时间（JWT exp claim 解析；可空）。
 	AccessTokenExpiresAt *time.Time `json:"-"`
+	// SessionToken 是 __Secure-next-auth.session-token cookie（约 3 个月，稳定可续期凭证）。
+	SessionToken string `json:"-"` // 敏感，不回显前端
+	// CookieHeader 是注册时的 Cookie 头（含 oai-did 设备指纹，token-heal 回灌保持三路自洽）。
+	CookieHeader string `json:"-"` // 敏感，不回显前端
 }
 
 // AccountListFilter mirrors the list_accounts query parameters (main.py:1228-1235).

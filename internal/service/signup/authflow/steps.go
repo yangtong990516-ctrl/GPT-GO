@@ -461,6 +461,18 @@ func (f *Flow) getAuthSession(ctx context.Context) error {
 	if body.AccessToken != "" {
 		f.result.AccessToken = body.AccessToken
 	}
+	// 抓 Cookie 头(含 oai-did 设备指纹 + session-token),供 token-heal 回灌三路自洽。
+	// 拼成 "name=value; name2=value2" 形式;注册成功的最终会话指纹。
+	if cookies := f.boot.Session.GetCookies(); len(cookies) > 0 {
+		parts := make([]string, 0, len(cookies))
+		for _, c := range cookies {
+			if c.Name == "" {
+				continue
+			}
+			parts = append(parts, c.Name+"="+c.Value)
+		}
+		f.result.CookieHeader = strings.Join(parts, "; ")
+	}
 	return nil
 }
 

@@ -220,6 +220,48 @@ export function useBulkEnsure2FA() {
   })
 }
 
+// ── Token Heal(session cookie 续 AT,docs/SESSION-TOKEN-HEAL.md)───────────────
+// 后端 POST /api/accounts/{id}/heal(单号)与 /api/accounts/bulk-heal(批量):
+// 用落库 session cookie 单次只读 GET /api/auth/session 换新 AT,无需密码/OTP/2FA。
+export interface HealItem {
+  id: string
+  status: string // success / failed / skipped
+  error?: string
+}
+export interface HealResult {
+  requested: number
+  succeeded: number
+  failed: number
+  skipped: number
+  items: HealItem[]
+}
+
+// 单账号续 AT。
+export function useHealAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { id: string; proxyId?: string }) =>
+      api.post<HealItem>(`/api/accounts/${input.id}/heal`, { proxyId: input.proxyId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts"] })
+      qc.invalidateQueries({ queryKey: ["stats"] })
+    },
+  })
+}
+
+// 批量续 AT(对选中账号)。
+export function useBulkHealAccounts() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { ids: string[]; proxyId?: string }) =>
+      api.post<HealResult>("/api/accounts/bulk-heal", { ids: input.ids, proxyId: input.proxyId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts"] })
+      qc.invalidateQueries({ queryKey: ["stats"] })
+    },
+  })
+}
+
 // ── Payment Check（支付类型检测）─────────────────────────────────────────────
 
 export interface PaymentRouteSpec {

@@ -46,6 +46,7 @@ import (
 	"gpt-go/internal/service/signup"
 	"gpt-go/internal/service/signup/otp"
 	statssvc "gpt-go/internal/service/stats"
+	"gpt-go/internal/service/tokenheal"
 	"gpt-go/internal/store"
 	"gpt-go/internal/store/mongo"
 	"gpt-go/internal/util"
@@ -79,6 +80,8 @@ type Server struct {
 	mfaChecker *mfacheck.Service
 	// security 是「补 2FA(开通 TOTP)」服务（/api/accounts/{id}/ensure-2fa + /bulk-ensure-2fa）。
 	security *accountsecurity.Service
+	// healer 是「session cookie 续 AT」服务（/api/accounts/{id}/heal + /bulk-heal）。
+	healer *tokenheal.Service
 	// rebinder 是邮箱换绑服务（全局互斥批次；/api/rebind 路由组）。
 	rebinder *rebind.Service
 	// signup 是装配好的纯协议注册引擎（见 signup_wiring.go），由 runs 触发批量注册。
@@ -357,6 +360,7 @@ func (s *Server) Handler() *gin.Engine {
 		WithPlanChecker(s.planChecker).
 		WithMfaChecker(s.mfaChecker).
 		WithSecurity(s.security, s.buildEnsure2FAOTPFactory()).
+		WithHealer(s.healer).
 		Register(engine.Group("/api/accounts"))
 
 	// Email pool group (CONTRACT §4.5).

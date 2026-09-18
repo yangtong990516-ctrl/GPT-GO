@@ -31,6 +31,7 @@ import (
 	"gpt-go/internal/service/signup"
 	"gpt-go/internal/service/signup/authflow"
 	"gpt-go/internal/service/signup/otp"
+	"gpt-go/internal/service/tokenheal"
 	"gpt-go/internal/service/signup/sentinel"
 	"gpt-go/internal/util"
 )
@@ -90,7 +91,15 @@ func (s *Server) wireSignup(ctx context.Context) {
 	if s.logHub != nil {
 		plancheckLog = s.logHub.Logger("plancheck")
 	}
-	planChecker := plancheck.New(s.accountStore, proxyStore, plancheck.WithRunLogger(plancheckLog))
+	// token-heal 服务(docs/SESSION-TOKEN-HEAL.md):用落库 session cookie 轻量续 AT,
+	// 复用 accountStore(Get/StoreSessionHeal)+ proxyStore(注册国租代理);无需 solver/OTP。
+	// 先装配:planChecker 的 AT 过期自愈要注入它。
+	s.healer = tokenheal.New(s.accountStore, proxyStore)
+
+	planChecker := plancheck.New(s.accountStore, proxyStore,
+		plancheck.WithRunLogger(plancheckLog),
+		plancheck.WithHealer(s.healer), // AT 过期(TokenInvalid)先 session 续期再重试
+	)
 	// 存到 server,供 /api/accounts/check-combined 批量「验活+查优惠」复用同一实例。
 	s.planChecker = planChecker
 

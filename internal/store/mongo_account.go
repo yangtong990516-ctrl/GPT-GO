@@ -81,6 +81,12 @@ func (s *mongoAccountStore) encryptDoc(d *AccountDocument) error {
 	if d.RefreshToken, err = s.codec.encryptStringPtr(d.RefreshToken); err != nil {
 		return err
 	}
+	if d.SessionToken, err = s.codec.encrypt(d.SessionToken); err != nil {
+		return err
+	}
+	if d.CookieHeader, err = s.codec.encrypt(d.CookieHeader); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -90,6 +96,8 @@ func (s *mongoAccountStore) decryptDoc(d *AccountDocument) {
 	d.ChatgptPassword = s.codec.decrypt(d.ChatgptPassword)
 	d.TotpSecret = s.codec.decrypt(d.TotpSecret)
 	d.RefreshToken = s.codec.decryptStringPtr(d.RefreshToken)
+	d.SessionToken = s.codec.decrypt(d.SessionToken)
+	d.CookieHeader = s.codec.decrypt(d.CookieHeader)
 }
 
 // encryptSensitiveRows 启动时把历史明文敏感字段改写为密文(幂等)。
@@ -102,6 +110,8 @@ func (s *mongoAccountStore) encryptSensitiveRows(ctx context.Context) error {
 		bson.M{"chatgptPassword": bson.M{"$type": "string", "$not": bson.M{"$regex": "^enc:v1:"}, "$ne": ""}},
 		bson.M{"totpSecret": bson.M{"$type": "string", "$not": bson.M{"$regex": "^enc:v1:"}, "$ne": ""}},
 		bson.M{"refreshToken": bson.M{"$type": "string", "$not": bson.M{"$regex": "^enc:v1:"}, "$ne": ""}},
+		bson.M{"sessionToken": bson.M{"$type": "string", "$not": bson.M{"$regex": "^enc:v1:"}, "$ne": ""}},
+		bson.M{"cookieHeader": bson.M{"$type": "string", "$not": bson.M{"$regex": "^enc:v1:"}, "$ne": ""}},
 	}}
 	cur, err := s.coll().Find(cctx, filter)
 	if err != nil {
@@ -114,11 +124,11 @@ func (s *mongoAccountStore) encryptSensitiveRows(ctx context.Context) error {
 			return err
 		}
 		// 记录加密前的敏感字段,若加密后有变化才回写(struct 含 slice 不能直接 ==)。
-		before := [4]string{d.AccessToken, d.ChatgptPassword, d.TotpSecret, derefStr(d.RefreshToken)}
+		before := [6]string{d.AccessToken, d.ChatgptPassword, d.TotpSecret, derefStr(d.RefreshToken), d.SessionToken, d.CookieHeader}
 		if err := s.encryptDoc(&d); err != nil {
 			return err
 		}
-		after := [4]string{d.AccessToken, d.ChatgptPassword, d.TotpSecret, derefStr(d.RefreshToken)}
+		after := [6]string{d.AccessToken, d.ChatgptPassword, d.TotpSecret, derefStr(d.RefreshToken), d.SessionToken, d.CookieHeader}
 		if after == before {
 			continue
 		}
@@ -587,6 +597,42 @@ func (s *mongoAccountStore) StorePassword(ctx context.Context, id string, u Totp
 		if u.AccessTokenExpiresAt != nil {
 			set["accessTokenExpiresAt"] = *u.AccessTokenExpiresAt
 		}
+	}
+	return s.updateByID(ctx, id, bson.M{"$set": set})
+}
+
+// StoreSessionHeal 续期成功落库(Mongo):新 AT + 滚动 session cookie,清 AT 失效标记(账号复活)。
+func (s *mongoAccountStore) StoreSessionHeal(ctx context.Context, id string, u SessionHealUpdate) error {
+	tok := strings.TrimSpace(u.AccessToken)
+	if tok == "" {
+		return &AccountInvalidUpdateError{ID: id, Reason: "accessToken 不能为空"}
+	}
+	encTok, err := s.codec.encrypt(tok)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	set := bson.M{
+		"accessToken":          encTok,
+		"accessTokenConfigured": true,
+		"accessTokenUpdatedAt":  now,
+		// 复活:清 AT 失效/补 AT 失败标记。
+		"accessTokenMissing": false,
+		"atRefillStatus":     nil,
+		"atRefillError":      nil,
+		"atRefillErrorAt":    nil,
+	}
+	if u.AccessTokenExpiresAt != nil {
+		set["accessTokenExpiresAt"] = *u.AccessTokenExpiresAt
+	}
+	// 滚动后的新 session cookie 非空才回写(sessionUpdatedAt 随之刷新)。
+	if st := strings.TrimSpace(u.SessionToken); st != "" {
+		encSt, err := s.codec.encrypt(st)
+		if err != nil {
+			return err
+		}
+		set["sessionToken"] = encSt
+		set["sessionUpdatedAt"] = now
 	}
 	return s.updateByID(ctx, id, bson.M{"$set": set})
 }

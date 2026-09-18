@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"gpt-go/internal/service/signup"
+	"gpt-go/internal/service/tokenheal"
 	"gpt-go/internal/service/signup/core"
 	"gpt-go/internal/service/signup/plan"
 	"gpt-go/internal/store"
@@ -77,6 +78,14 @@ type Service struct {
 	newSession func(proxyURL string, timeout time.Duration) (planSession, error)
 	// rlog 可选：套餐检查活动日志句柄（系统级流 "plancheck"）。nil 不写日志。
 	rlog *signup.RunLogger
+	// healer 可选:AT 过期(TokenInvalid)时先用 session cookie 续期再重试一次(docs/SESSION-TOKEN-HEAL.md)。
+	// nil 时保持原行为(AT 过期直接判 dead)。
+	healer SessionHealer
+}
+
+// SessionHealer 抽象 token-heal 续期(tokenheal.Service 满足;避免循环依赖定义最小接口)。
+type SessionHealer interface {
+	Heal(ctx context.Context, accountID, proxyID string) tokenheal.HealResult
 }
 
 // planSession 抽象 core.Session：plan.Check 的 Get + 资源释放 Close。
@@ -109,6 +118,11 @@ func WithSessionFactory(f func(proxyURL string, timeout time.Duration) (planSess
 // WithRunLogger 注入套餐检查活动日志句柄（系统级流，供 SSE/历史展示）。
 func WithRunLogger(l *signup.RunLogger) Option {
 	return func(s *Service) { s.rlog = l }
+}
+
+// WithHealer 注入 token-heal 续期服务(AT 过期先续期再重试)。
+func WithHealer(h SessionHealer) Option {
+	return func(s *Service) { s.healer = h }
 }
 
 // New 构造合并检查服务。
@@ -229,6 +243,23 @@ func (s *Service) checkOne(ctx context.Context, accountID, proxyID string) Item 
 	defer sess.Close()
 
 	res, perr := plan.Check(ctx, sess, src.AccessToken, timezoneOffsetForCountry(country))
+	// ── token-heal 自愈:AT 过期(TokenInvalid)且配了 healer → 先用 session cookie 续期,
+	//    续成则用新 AT 重试一次 plan.Check;续不成才按死号/失败落库(docs/SESSION-TOKEN-HEAL.md)。
+	if perr != nil && s.healer != nil {
+		if pe, ok := perr.(*plan.Error); ok && pe.TokenInvalid() {
+			s.rlog.Emit(signup.LogInfo, "plancheck_heal_try", "AT 过期,尝试 session 续期", src.Email, map[string]any{"accountId": accountID})
+			hr := s.healer.Heal(ctx, accountID, "")
+			if hr.Status == "success" {
+				// 续期成功:重新读账号拿新 AT,重试一次 plan.Check。
+				if refreshed, gerr := s.accounts.Get(ctx, accountID); gerr == nil && refreshed != nil && refreshed.AccessToken != "" {
+					s.rlog.Emit(signup.LogInfo, "plancheck_heal_ok", "session 续期成功,重试套餐检查", src.Email, map[string]any{"accountId": accountID})
+					res, perr = plan.Check(ctx, sess, refreshed.AccessToken, timezoneOffsetForCountry(country))
+				}
+			} else {
+				s.rlog.Emit(signup.LogWarning, "plancheck_heal_fail", "session 续期失败: "+hr.Error, src.Email, map[string]any{"accountId": accountID, "err": hr.Error})
+			}
+		}
+	}
 	if perr != nil {
 		pe, ok := perr.(*plan.Error)
 		code, httpSt, dead, tokenInvalid := "plan_request_failed", (*int)(nil), false, false

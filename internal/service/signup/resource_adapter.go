@@ -153,6 +153,9 @@ func (a *ResourceAdapter) PersistAccount(ctx context.Context, res *AuthResultLik
 		// 注册产物 token：落库 accessToken + 过期时间（套餐检查/验活依赖），refresh_token 可空。
 		AccessToken:          strings.TrimSpace(res.AccessToken),
 		AccessTokenExpiresAt: accessTokenExpiresAt(res.AccessToken),
+		// token-heal 凭证:session cookie + cookie_header(后续 AT 过期续期/验活用)。
+		SessionToken: strings.TrimSpace(res.SessionToken),
+		CookieHeader: strings.TrimSpace(res.CookieHeader),
 	}
 	if rt := strings.TrimSpace(res.RefreshToken); rt != "" {
 		in.RefreshToken = &rt

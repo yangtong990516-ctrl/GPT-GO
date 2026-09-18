@@ -11,6 +11,7 @@ import (
 	"gpt-go/internal/model"
 	accountsvc "gpt-go/internal/service/account"
 	"gpt-go/internal/service/accountsecurity"
+	"gpt-go/internal/service/tokenheal"
 	"gpt-go/internal/service/mfacheck"
 	"gpt-go/internal/service/plancheck"
 	"gpt-go/internal/util"
@@ -27,6 +28,8 @@ type Handler struct {
 	security *accountsecurity.Service
 	// makeOTP 由邮箱 accessUrl 构造 OTP provider(补 2FA 登录若走 OTP 分支用),可为 nil。
 	makeOTP accountsecurity.OtpProviderFunc
+	// healer 提供「session cookie 续 AT」能力(docs/SESSION-TOKEN-HEAL.md),可为 nil。
+	healer *tokenheal.Service
 }
 
 // NewHandler returns an accounts API handler bound to the service.
@@ -53,6 +56,12 @@ func (h *Handler) WithSecurity(sec *accountsecurity.Service, makeOTP accountsecu
 	return h
 }
 
+// WithHealer 注入 token-heal(session cookie 续 AT)服务,返回自身便于链式装配。
+func (h *Handler) WithHealer(heal *tokenheal.Service) *Handler {
+	h.healer = heal
+	return h
+}
+
 // Register mounts the /api/accounts routes onto the given group.
 func (h *Handler) Register(rg *gin.RouterGroup) {
 	rg.GET("", h.list)
@@ -65,6 +74,9 @@ func (h *Handler) Register(rg *gin.RouterGroup) {
 	// 补 2FA(开通 TOTP):单账号 + 批量(对齐 codex ensure-2fa / bulk-ensure-2fa)。
 	rg.POST("/:id/ensure-2fa", h.ensure2FAOne)
 	rg.POST("/bulk-ensure-2fa", h.ensure2FABatch)
+	// token-heal(session cookie 续 AT):单账号 + 批量(docs/SESSION-TOKEN-HEAL.md)。
+	rg.POST("/:id/heal", h.healOne)
+	rg.POST("/bulk-heal", h.healBatch)
 }
 
 // list mirrors GET /api/accounts (main.py:1226).
@@ -264,6 +276,55 @@ func (h *Handler) ensure2FABatch(c *gin.Context) {
 		return
 	}
 	res := h.security.EnsureBatch(c.Request.Context(), payload.IDs, payload.ProxyID, 0, h.makeOTP)
+	c.JSON(http.StatusOK, res)
+}
+
+// healOne 处理 POST /api/accounts/:id/heal:用 session cookie 给单账号续 AT。
+func (h *Handler) healOne(c *gin.Context) {
+	if h.healer == nil {
+		util.WriteError(c, &util.HTTPError{Status: http.StatusServiceUnavailable, Code: "healer_unavailable", Message: "token-heal 服务未装配"})
+		return
+	}
+	id := c.Param("id")
+	if id == "" {
+		util.WriteError(c, util.InvalidBody())
+		return
+	}
+	var payload struct {
+		ProxyID string `json:"proxyId"`
+	}
+	_ = c.ShouldBindJSON(&payload) // proxyId 可空
+	res := h.healer.Heal(c.Request.Context(), id, payload.ProxyID)
+	status := http.StatusOK
+	if res.Status == "failed" {
+		status = http.StatusUnprocessableEntity
+	}
+	c.JSON(status, res)
+}
+
+// healBatch 处理 POST /api/accounts/bulk-heal:批量续 AT(并发限流,单号失败不影响其它)。
+func (h *Handler) healBatch(c *gin.Context) {
+	if h.healer == nil {
+		util.WriteError(c, &util.HTTPError{Status: http.StatusServiceUnavailable, Code: "healer_unavailable", Message: "token-heal 服务未装配"})
+		return
+	}
+	var payload struct {
+		IDs     []string `json:"ids"`
+		ProxyID string   `json:"proxyId"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		util.WriteError(c, util.InvalidBody())
+		return
+	}
+	if len(payload.IDs) == 0 {
+		util.WriteError(c, &util.HTTPError{Status: http.StatusUnprocessableEntity, Code: "empty_ids", Message: "ids 不能为空"})
+		return
+	}
+	if len(payload.IDs) > 100 {
+		util.WriteError(c, &util.HTTPError{Status: http.StatusUnprocessableEntity, Code: "too_many_ids", Message: "一次最多续 100 个账号"})
+		return
+	}
+	res := h.healer.HealBatch(c.Request.Context(), payload.IDs, payload.ProxyID, 0)
 	c.JSON(http.StatusOK, res)
 }
 

@@ -64,10 +64,12 @@ import {
   useAccounts,
   useBulkDeleteAccounts,
   useBulkEnsure2FA,
+  useBulkHealAccounts,
   useCheck2FAAccounts,
   useCheckCombinedAccounts,
   useCreateAccount,
   useEnsure2FA,
+  useHealAccount,
 } from "@/lib/queries"
 import type { AccountRecord } from "@/lib/types"
 import { HttpError } from "@/lib/api"
@@ -511,6 +513,8 @@ export default function AccountsPage() {
   const check2FA = useCheck2FAAccounts()
   const bulkEnsure2FA = useBulkEnsure2FA()
   const ensure2FA = useEnsure2FA()
+  const bulkHeal = useBulkHealAccounts()
+  const healAccount = useHealAccount()
 
   const items = list.data?.items ?? []
   const allChecked = items.length > 0 && items.every((a) => selected.has(a.id))
@@ -649,6 +653,50 @@ export default function AccountsPage() {
     )
   }
 
+  // 批量「续 AT(token-heal)」:用落库 session cookie 轻量续期,无需密码/OTP。
+  // 无 session token 的老账号会被跳过(skipped=no_session_token)。
+  const runBulkHeal = () => {
+    const ids = Array.from(selected)
+    bulkHeal.mutate(
+      { ids },
+      {
+        onSuccess: (r) => {
+          toast.success(
+            `续 AT 完成:成功 ${r.succeeded}｜失败 ${r.failed}｜跳过 ${r.skipped}`,
+            {
+              description:
+                r.failed > 0
+                  ? "失败项多为 session cookie 已过期(约 3 个月),需走完整登录重建;跳过项为无 session token 的老账号"
+                  : `共请求 ${r.requested} 个账号`,
+            },
+          )
+        },
+        onError: (e) =>
+          toast.error(e instanceof HttpError ? e.message : "批量续 AT 失败"),
+      },
+    )
+  }
+
+  // 单账号续 AT(操作菜单触发)。
+  const runHealOne = (id: string) => {
+    healAccount.mutate(
+      { id },
+      {
+        onSuccess: (r) => {
+          if (r.status === "success") {
+            toast.success("AT 已续期", { description: "用 session cookie 换到新 access_token" })
+          } else if (r.status === "skipped") {
+            toast.info("已跳过", { description: r.error || "该账号无 session token" })
+          } else {
+            toast.error("续 AT 失败", { description: r.error || "未知错误" })
+          }
+        },
+        onError: (e) =>
+          toast.error(e instanceof HttpError ? e.message : "续 AT 失败"),
+      },
+    )
+  }
+
   return (
     <div>
       <PageHeader
@@ -706,6 +754,15 @@ export default function AccountsPage() {
         >
           {bulkEnsure2FA.isPending ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck />}
           批量补 2FA + 密码
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={selected.size === 0 || bulkHeal.isPending}
+          onClick={runBulkHeal}
+        >
+          {bulkHeal.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw />}
+          批量续 AT
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -918,6 +975,12 @@ export default function AccountsPage() {
                             onClick={() => runEnsure2FAOne(acc.id)}
                           >
                             <ShieldCheck /> 补 2FA
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={healAccount.isPending}
+                            onClick={() => runHealOne(acc.id)}
+                          >
+                            <RefreshCw /> 续期 AT
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => navigator.clipboard.writeText(acc.totpSecret || "")}

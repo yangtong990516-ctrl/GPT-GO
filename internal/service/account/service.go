@@ -104,6 +104,14 @@ func (s *Service) Create(ctx context.Context, in model.AccountCreate) (model.Acc
 		rt := strings.TrimSpace(*in.RefreshToken)
 		doc.RefreshToken = &rt
 	}
+	// token-heal 凭证:session_token + cookie_header(注册时落库,后续续期/验活用)。
+	if st := strings.TrimSpace(in.SessionToken); st != "" {
+		doc.SessionToken = st
+		doc.SessionUpdatedAt = &now
+	}
+	if ch := strings.TrimSpace(in.CookieHeader); ch != "" {
+		doc.CookieHeader = ch
+	}
 	inserted, err := s.store.Create(ctx, doc)
 	if err != nil {
 		return model.AccountRecord{}, err
@@ -237,6 +245,9 @@ func accountRecord(d store.AccountDocument) model.AccountRecord {
 		PaymentZeroMethods:    nonNilStrings(d.PaymentZeroMethods),
 		PaymentCheckedAt:      d.PaymentCheckedAt,
 		PaymentRoutes:         d.PaymentRoutes,
+		SessionToken:          d.SessionToken,
+		CookieHeader:          d.CookieHeader,
+		SessionUpdatedAt:      d.SessionUpdatedAt,
 	}
 }
 
