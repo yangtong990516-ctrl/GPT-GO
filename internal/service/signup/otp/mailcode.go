@@ -156,11 +156,12 @@ func (p *MailcodeProvider) WaitForOTP(ctx context.Context, emailAddr string, tim
 		if code != "" {
 			if baseline != "" && code == baseline {
 				// 与 baseline 相同:可能是①上次残留旧码(该排除)②全新邮箱唯一一封
-				// 本次新码(baseline 抓取时它恰好已到)。区分:给它少量帧数让真实新码
-				// 顶替;若【连续多帧】都不变(页面没更新出不同码),说明大概率是②
-				// (唯一邮件),兜底接受——否则会把「全新邮箱首封」卡死。
+				// 本次新码(baseline 抓取时它恰好已到)。给它足够帧数让真实新码顶替
+				// 残留旧码(wdmail 新邮件同步有延迟,实测可达 30s+);若【连续 15 帧】
+				// (≈45s@3s)都不变,说明大概率是②(唯一邮件,无更新),兜底接受——
+				// 既放过「全新邮箱首封」,又让①的残留旧码在 45s 内被新码顶替而排除。
 				sameAsBaseline++
-				if sameAsBaseline >= 8 {
+				if sameAsBaseline >= 15 {
 					return code, nil
 				}
 				if !sleepOrDone(ctx, p.pollInterval) {
