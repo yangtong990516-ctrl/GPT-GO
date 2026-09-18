@@ -40,6 +40,14 @@ import {
 import { HttpError } from "@/lib/api"
 import { formatTime } from "@/lib/format"
 
+// toAmount 把后端可能返回「字符串或数字」的金额安全格式化为 2 位小数字符串。
+// 后端钱包接口在部分来源下返回 "45.00"(string),直接调 .toFixed 会抛
+// "toFixed is not a function" 导致整页崩溃黑屏——故统一在此兜底。
+function toAmount(v: number | string | null | undefined): string {
+  const n = typeof v === "number" ? v : parseFloat(String(v ?? ""))
+  return Number.isFinite(n) ? n.toFixed(2) : "0.00"
+}
+
 function ProbeBadge({ result }: { result: { ok: boolean; message: string; reachable: boolean } | undefined }) {
   if (!result) return null
   return result.ok ? (
@@ -378,19 +386,19 @@ function RemailSection() {
                 <div>
                   <p className="text-muted-foreground text-xs">可用余额</p>
                   <p className="text-xl font-semibold tabular-nums">
-                    ¥ {wallet.data.consumerBalance.toFixed(2)}
+                    ¥ {toAmount(wallet.data.consumerBalance)}
                   </p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">累计充值</p>
                   <p className="text-xl font-semibold tabular-nums">
-                    ¥ {wallet.data.totalRecharged.toFixed(2)}
+                    ¥ {toAmount(wallet.data.totalRecharged)}
                   </p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">历史消费</p>
                   <p className="text-xl font-semibold tabular-nums">
-                    ¥ {wallet.data.historicalSpend.toFixed(2)}
+                    ¥ {toAmount(wallet.data.historicalSpend)}
                   </p>
                 </div>
               </div>

@@ -255,9 +255,10 @@ export interface RemailProbeResult {
 export interface RemailWallet {
   ok: boolean
   message: string
-  consumerBalance: number
-  totalRecharged: number
-  historicalSpend: number
+  // 后端可能返回数字或数字字符串(如 "45.00"),渲染侧用 toAmount 统一兜底。
+  consumerBalance: number | string
+  totalRecharged: number | string
+  historicalSpend: number | string
 }
 
 export interface RemailMailboxRecord {
