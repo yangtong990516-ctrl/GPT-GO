@@ -40,12 +40,6 @@ type MailcodeProvider struct {
 	codePattern *regexp.Regexp
 	// dead 标记本号是否已废（Pooled 语义）。
 	dead bool
-	// baseline 是「取码动作开始前邮箱里已有的码」（对齐 codex wait_for_new_code 的
-	// baseline/submitted_at 语义）。passwordless 流程下 authorize/continue 会先抢发
-	// 一封码 X,随后的 resend 会让 X 在服务端【立即失效】并改发新码 Y。若取到 X 提交
-	// → wrong_email_otp_code。故 WaitForOTP 必须【拒绝等于 baseline 的码】,只接受与
-	// 它不同的新码 Y。由 PeekOTP/显式 SetBaseline 在发码前记录。
-	baseline string
 }
 
 // MailcodeOption 是构造选项。
@@ -149,16 +143,10 @@ func (p *MailcodeProvider) WaitForOTP(ctx context.Context, emailAddr string, tim
 			continue
 		}
 		if code != "" {
-			// 新鲜度(对齐 codex wait_for_new_code):若该码与 baseline(取码前已有码 X)
-			// 相同 → 它是已被 resend 作废的旧码,绝不能提交,继续轮询等新码 Y。
-			if p.baseline != "" && code == p.baseline {
-				if !sleepOrDone(ctx, p.pollInterval) {
-					return "", NewError("验证码等待被取消", false, "cancelled", ctx.Err())
-				}
-				continue
-			}
-			// 新码(≠baseline):防抖确认——立刻再抓一次,一致才返回,避免页面刷新
-			// 瞬间/解析闪变拿到半成品。确认失败则继续轮询。
+			// 防抖确认:立刻再抓一次(不 sleep pollInterval),两次一致才返回,
+			// 避免页面刷新瞬间/解析闪变拿到半成品。确认失败则继续轮询。
+			// 注:codex 明确 passwordless 的 resend 复用同一 challenge,【第一封的码
+			// 同样有效】,故这里【不做 baseline 排除】——晚到的首封也是合法码。
 			if confirm, _, cerr := p.fetchOnce(ctx, issuedAfterUnix); cerr == nil && confirm == code {
 				return code, nil
 			}
@@ -189,11 +177,6 @@ func (p *MailcodeProvider) PeekOTP(ctx context.Context, emailAddr string, issued
 	code, _, err := p.fetchOnce(ctx, issuedAfterUnix)
 	if err != nil {
 		return "", nil // peek 失败不抛，走正常发码路径
-	}
-	// 记录 baseline:取码前邮箱已有码(可能是 resend 会作废的旧码 X)。
-	// WaitForOTP 据此拒绝它,只接受 resend 之后的新码 Y。
-	if code != "" {
-		p.baseline = code
 	}
 	return code, nil
 }

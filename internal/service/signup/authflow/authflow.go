@@ -215,42 +215,66 @@ func (f *Flow) RunRegister(ctx context.Context, email, password string, mail otp
 				return nil, signup.NewRegistrationError("register_password_failed", email, err)
 			}
 		}
-		// 8) 发码（对齐 Python kickoff_otp_delivery，防 state 破坏）。
-		//    【防 wrong_email_otp_code 铁律】passwordless 下 authorize/continue 已在服务端
-		//    抢发首封码 X。若随后调 send/resend，X 在服务端【立即失效】，改发新码 Y。
-		//    取到 X 提交即 Wrong code。故:
-		//    - passwordless:先 peek，命中 X(未作废旧码,仍有效)直接用,绝不 resend;
-		//      peek 不到才 resend 发 Y,且取码须排除 resend 前的 X(见 mailcode baseline)。
+		// 8) 发码+取码（完全对齐 codex run_register passwordless 流程，根治 wrong_email_otp_code）。
+		//    codex auth_flow.py:3645-3695 铁律:
+		//    - passwordless_signup:signup() 已在服务端触发【第一封 OTP 派发】。
+		//      先 wait 等这一封(通常 3-30s 到),【绝不立即 resend】——立即重发会撞
+		//      OpenAI 发信频控:POST 返回 200 但邮件被 silent-drop(同域名 6 并发 5 个
+		//      全 drop)。60s 没收到才 resend 换码。
+		//    - resend 复用同一 challenge,【第一封的码同样有效】,晚到的第一封也接受
+		//      (otp_sent_at 放宽到 signup 触发那刻,不再只认新码)。
 		//    - 新密码分支:register 成功后服务端切流程,原 OTP 失效 → 必须重发。
+		if otpTimeoutSeconds <= 0 {
+			otpTimeoutSeconds = 180 // 对齐 codex OTP_TIMEOUT=180(GPT-GO 旧值 60 太短)
+		}
+		// signup 触发发码的时刻(对齐 codex _signup_otp_sent_at):authorize/continue 在
+		// signup 步已派发第一封 OTP,此处 signup 刚返回,即首封派发时刻。取码窗口以此为基准。
 		otpSentAt := nowUnix()
 		code := ""
 		if isPasswordless {
-			// 先 peek:authorize/continue 抢发的码 X 未被作废,直接用。
-			if pk, _ := mail.PeekOTP(ctx, email, otpSentAt, 0); pk != "" {
-				code = pk
+			// 先等 signup 触发的第一封(窗口 min(max(20,timeout/4),60),对齐 codex first_window)。
+			firstWindow := otpTimeoutSeconds / 4
+			if firstWindow < 20 {
+				firstWindow = 20
+			}
+			if firstWindow > 60 {
+				firstWindow = 60
+			}
+			c, err := mail.WaitForOTP(ctx, email, firstWindow, otpSentAt-3)
+			if err == nil && c != "" {
+				code = c // 第一封到了,直接用,不 resend(避免 silent-drop)
 			} else {
-				// peek 无码(首封还没到/被 drop):resend 触发新码 Y。
-				// resend 会让晚到的 X 失效,故取码用 baseline 排除 X。
+				// 第一封超时(多半被 silent-drop):resend 换码,复用同 challenge。
+				// 放宽窗口到 signup 触发那刻:resend 后晚到的第一封同样有效。
 				f.kickoffOTPDelivery(ctx, "passwordless_signup")
+				retryWin := otpTimeoutSeconds
+				if retryWin > 180 {
+					retryWin = 180
+				}
+				if retryWin < 60 {
+					retryWin = 60
+				}
+				c2, err2 := mail.WaitForOTP(ctx, email, retryWin, otpSentAt-5)
+				if err2 != nil {
+					return nil, signup.NewRegistrationError("otp_fetch_failed", email, err2)
+				}
+				code = c2
 			}
 		} else {
+			// 新密码分支:register 后必须主动重发(原 OTP 已失效),先发再取时间戳。
+			sentAt := nowUnix()
 			if err := f.sendOTP(ctx, "https://auth.AI Platform.com/create-account/раs​s​wоr​d"); err != nil {
 				if !f.kickoffOTPDelivery(ctx, "new_register") {
 					return nil, signup.NewRegistrationError("send_otp_failed", email, err)
 				}
 			}
-		}
-		// 9) 取码（peek 未命中时 wait;passwordless 的 peek 命中已直接得码）+ 校验
-		if otpTimeoutSeconds <= 0 {
-			otpTimeoutSeconds = 60
-		}
-		if code == "" {
-			var err error
-			code, err = mail.WaitForOTP(ctx, email, otpTimeoutSeconds, otpSentAt)
+			c, err := mail.WaitForOTP(ctx, email, otpTimeoutSeconds, sentAt)
 			if err != nil {
 				return nil, signup.NewRegistrationError("otp_fetch_failed", email, err)
 			}
+			code = c
 		}
+		// 9) 校验 OTP
 		if _, err := f.verifyOTP(ctx, code); err != nil {
 			return nil, signup.NewRegistrationError("otp_verify_failed", email, err)
 		}
