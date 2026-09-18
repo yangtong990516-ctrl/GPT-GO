@@ -314,10 +314,19 @@ func (s *Session) do(ctx context.Context, method, url, contentType string, body 
 		// 随机延迟。协议连发(零间隔)的时序特征会被风控识别为脚本——高并发下尤为致命。
 		humanize.Pause(nil, url)
 
+		// Datadog RUM 追踪头(对齐 codex _datadog_trace_headers,全请求注入):
+		// codex 注释明确「避免 OTP silent-drop」+ 状态机连续性,是注册成功率的一环。
+		hdr := cloneHeaders(headers)
+		for k, v := range humanize.DatadogTraceHeaders(nil) {
+			if _, ok := hdr[k]; !ok {
+				hdr[k] = []string{v}
+			}
+		}
+
 		req := &httpcloak.Request{
 			Method:  method,
 			URL:     url,
-			Headers: cloneHeaders(headers),
+			Headers: hdr,
 		}
 		if body != nil {
 			req.Body = io.NopCloser(strings.NewReader(string(body)))

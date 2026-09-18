@@ -13,6 +13,7 @@
 package humanize
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"strings"
@@ -102,6 +103,24 @@ func ActionPause(rng *rand.Rand, kind string) {
 
 // OTPInputPause 收码后输入验证码的停顿（最常用，语义化封装）。
 func OTPInputPause(rng *rand.Rand) { ActionPause(rng, "otp_input") }
+
+// DatadogTraceHeaders 生成 Datadog RUM 追踪头（对齐 codex _datadog_trace_headers）。
+// codex 全请求注入这组头，注释明确「避免 OTP silent-drop」+ 状态机连续性。
+func DatadogTraceHeaders(rng *rand.Rand) map[string]string {
+	r := rngOrGlobal(rng)
+	tid := fmt.Sprintf("%016x", r.Uint64())
+	sid := fmt.Sprintf("%d", r.Int63())
+	pid := fmt.Sprintf("%d", r.Int63())
+	tsHex := fmt.Sprintf("%08x", time.Now().Unix())
+	return map[string]string{
+		"traceparent":                fmt.Sprintf("00-0000000000000000%s-%016x-01", tid, r.Uint64()),
+		"x-datadog-trace-id":         sid,
+		"x-datadog-parent-id":        pid,
+		"x-datadog-sampling-priority": "1",
+		"x-datadog-origin":           "rum",
+		"x-datadog-tags":             fmt.Sprintf("_dd.p.id=%s,_dd.p.tid=%s00000000,_dd.b.sr=1", tid, tsHex),
+	}
+}
 
 // ── 内部工具 ──
 

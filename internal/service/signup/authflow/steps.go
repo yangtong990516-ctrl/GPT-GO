@@ -361,6 +361,10 @@ func (f *Flow) verifyOTP(ctx context.Context, code string) (map[string]any, erro
 		return nil, fmt.Errorf("verify_otp: %w", err)
 	}
 	if resp.StatusCode != 200 {
+		// OTP 调试(对齐 codex verify_otp FULL body):记录提交的码,便于和邮箱真码对比
+		// 定位「码错 vs 会话/state 不匹配」。仅失败时输出,不泄露到正常日志。
+		fmt.Printf("[otp-debug] verify_otp 失败 email-flow code=%s HTTP %d body=%s\n",
+			code, resp.StatusCode, truncate(resp.Text(), 200))
 		return nil, fmt.Errorf("verify_otp: HTTP %d body=%s", resp.StatusCode, truncate(resp.Text(), 260))
 	}
 	var data map[string]any
