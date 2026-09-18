@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import {
   useExecutionSettings,
+  useRunSentinelCheck,
   useSaveExecutionSettings,
   useSaveSentinelConfig,
   useSentinelConfig,
@@ -213,6 +214,7 @@ function SentinelCard() {
   const config = useSentinelConfig()
   const version = useSentinelVersion()
   const save = useSaveSentinelConfig()
+  const runCheck = useRunSentinelCheck()
   const [enabled, setEnabled] = React.useState(true)
   const [intervalHours, setIntervalHours] = React.useState(24)
   const [proxy, setProxy] = React.useState("")
@@ -338,8 +340,29 @@ function SentinelCard() {
         >
           <Save /> {save.isPending ? "保存中…" : "保存配置"}
         </Button>
-        <Button variant="outline" size="sm" onClick={() => version.refetch()}>
-          <RefreshCw /> 刷新版本信息
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={runCheck.isPending}
+          onClick={() =>
+            runCheck.mutate(undefined, {
+              onSuccess: (d) =>
+                d.is_expired || d.check_error
+                  ? toast.warning("检测完成:版本可能已过期", {
+                      description: d.check_error ?? `HTTP 探测返回异常`,
+                    })
+                  : toast.success("检测完成:版本有效", {
+                      description: `走代理 ${d.proxy_used ? "是" : "否"} · 可达 ${d.reachable ? "是" : "否"}`,
+                    }),
+              onError: (e) =>
+                toast.error("检测失败", {
+                  description: e instanceof Error ? e.message : "请稍后重试",
+                }),
+            })
+          }
+        >
+          <RefreshCw className={runCheck.isPending ? "animate-spin" : ""} />
+          {runCheck.isPending ? "探测中…" : "立即检测版本"}
         </Button>
       </CardFooter>
     </Card>

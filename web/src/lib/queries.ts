@@ -844,6 +844,18 @@ export function useSentinelVersion() {
   })
 }
 
+// 手动触发一次真实版本探测(走代理,落库),区别于 useSentinelVersion(只读缓存)。
+export function useRunSentinelCheck() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<SentinelVersionInfo>("/api/sentinel/check", {}),
+    onSuccess: (data) => {
+      // 用真实探测结果直接更新版本缓存,UI 立刻反映。
+      qc.setQueryData(["sentinel", "version"], data)
+    },
+  })
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 export function useExecutionSettings() {
