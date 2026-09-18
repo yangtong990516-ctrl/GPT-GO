@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -80,6 +81,43 @@ type ProofOfWork struct {
 	Required   bool   `json:"required"`
 	Seed       string `json:"seed"`
 	Difficulty int    `json:"difficulty"`
+}
+
+// UnmarshalJSON 自定义反序列化:服务端 difficulty 时而返回数字、时而返回字符串
+// (如 "18"),统一解析为 int,避免 "cannot unmarshal string into int" 解析失败。
+func (p *ProofOfWork) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Required   bool            `json:"required"`
+		Seed       string          `json:"seed"`
+		Difficulty json.RawMessage `json:"difficulty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	p.Required = raw.Required
+	p.Seed = raw.Seed
+	p.Difficulty = parseFlexInt(raw.Difficulty)
+	return nil
+}
+
+// parseFlexInt 解析可能是 JSON number 或 JSON string 的整数(容错:解析失败给 0)。
+func parseFlexInt(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	// 先试 number。
+	var n int
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n
+	}
+	// 再试 string("18")。
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if v, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+			return v
+		}
+	}
+	return 0
 }
 
 // SoBlock 是 challenge.so 块。
