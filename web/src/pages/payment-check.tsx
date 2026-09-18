@@ -118,19 +118,6 @@ function checkoutTypeLabel(sessionType?: string): string {
   }
 }
 
-// entityLabel 把处理实体代码映射为可读名。
-function entityLabel(entity?: string): string {
-  switch (entity) {
-    case "openai_llc":
-      return "OpenAI LLC(美国)"
-    case "openai_ie":
-      return "OpenAI IE(爱尔兰)"
-    case "stripe":
-      return "Stripe"
-    default:
-      return entity || "—"
-  }
-}
 
 // emailFromJWT 解析 access token(JWT)payload 里的 email 字段。
 // ChatGPT AT 是标准 JWT(header.payload.signature),payload 含 https://api.openai.com/auth 等
@@ -499,24 +486,11 @@ export default function PaymentCheckPage() {
       <PageHeader
         title="支付类型检测"
         description="按区域线路创建优惠 Checkout（只建单不付款），读取 0 元试用金额与可用支付渠道，并记录检测出口 IP"
-        actions={
-          <>
-            {batchRunning ? (
-              <Button variant="destructive" size="sm" onClick={() => cancelCheck.mutate()}>
-                <CircleStop /> 停止批次
-              </Button>
-            ) : (
-              <Button size="sm" onClick={doRun} disabled={runCheck.isPending || !canRun}>
-                <Play /> 开始检测（{tab === "pool" ? effectiveIds.size : parsedTokens.length}）
-              </Button>
-            )}
-          </>
-        }
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,860px)]">
-        {/* 左列:提交区(账号/粘贴 + 线路) */}
-        <div className="space-y-4">
+      {/* 提交区一行两列:左=账号/粘贴,右=检测线路 */}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <div className="min-w-0">
       <Tabs value={tab} onValueChange={setTab} className="">
         <TabsList>
           <TabsTrigger value="pool">账号池选择</TabsTrigger>
@@ -588,8 +562,10 @@ export default function PaymentCheckPage() {
           </Card>
         </TabsContent>
       </Tabs>
+        </div>
 
-      {/* 线路点选器（两模式共用） */}
+        {/* 线路点选器（右列） */}
+        <div className="min-w-0">
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">检测线路（点选国家 + 点选代理）</CardTitle>
@@ -602,9 +578,9 @@ export default function PaymentCheckPage() {
         </CardContent>
       </Card>
         </div>
-
-        {/* 右列:检测结果(常驻,并发实时) */}
       </div>
+
+        {/* 检测结果(整行,常驻实时) */}
         <div className="min-w-0">
       <Card>
         <CardHeader className="pb-2">
@@ -618,6 +594,23 @@ export default function PaymentCheckPage() {
                     ? "并发检测中,完成一行填一行…"
                     : "本批次检测完成"}
               </CardDescription>
+            </div>
+            {/* 开始检测/停止批次 按钮:常驻结果卡标题栏,添加完代理即可点 */}
+            <div className="flex items-center gap-2">
+              {batchRunning ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-red-300 text-red-600 hover:bg-red-50"
+                  onClick={() => cancelCheck.mutate()}
+                >
+                  <CircleStop /> 停止批次
+                </Button>
+              ) : (
+                <Button size="sm" onClick={doRun} disabled={runCheck.isPending || !canRun}>
+                  <Play /> 开始检测（{tab === "pool" ? effectiveIds.size : parsedTokens.length}）
+                </Button>
+              )}
             </div>
             {hasBatch && batch.data && "total" in batch.data && (
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
@@ -664,7 +657,6 @@ export default function PaymentCheckPage() {
                   <TableHead className="w-28">出口地区</TableHead>
                   <TableHead>支付方式</TableHead>
                   <TableHead className="w-28">金额</TableHead>
-                  <TableHead className="w-36">处理实体</TableHead>
                   <TableHead className="w-40">检查时间</TableHead>
                 </TableRow>
               </TableHeader>
@@ -683,7 +675,7 @@ export default function PaymentCheckPage() {
                       <TableRow key={id}>
                         <TableCell className="font-mono text-xs">{label}</TableCell>
                         <TableCell>{stateBadge(state)}</TableCell>
-                        <TableCell colSpan={7}>
+                        <TableCell colSpan={6}>
                           <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
                             {state === "running" ? (
                               <><Loader2 className="size-3.5 animate-spin text-primary" /> 检测中</>
@@ -745,7 +737,6 @@ export default function PaymentCheckPage() {
                             </Badge>
                           ) : "—"}
                         </TableCell>
-                        <TableCell className="text-xs">{entityLabel(r?.processorEntity)}</TableCell>
                         <TableCell className="text-muted-foreground text-xs">
                           {r?.checkedAt ? formatTime(r.checkedAt) : "—"}
                         </TableCell>
