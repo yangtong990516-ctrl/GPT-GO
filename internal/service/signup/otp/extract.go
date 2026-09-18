@@ -38,7 +38,8 @@ func ExtractOTP(raw string, codePattern *regexp.Regexp) string {
 		return ""
 	}
 
-	// 1) 最可靠：<span>6位</span>
+	// 1) 最可靠：<span>6位</span>（HTML 标签包裹的验证码,基本是有意放置,直接采用,
+	//    不做平凡码排除——平凡码排除留给下方打分路径的兜底场景)。
 	if m := reSpanCode.FindStringSubmatch(raw); m != nil {
 		return m[1]
 	}
@@ -54,23 +55,23 @@ func ExtractOTP(raw string, codePattern *regexp.Regexp) string {
 	body = reTSBoundary.ReplaceAllString(body, "")
 	body = reTSParam.ReplaceAllString(body, "")
 
-	// 5) 匹配 6 位码
-	pat := reOTP6
+	// 5) 自定义正则：调用方明确给了格式,取第一个匹配（保持兼容）。
 	if codePattern != nil {
-		pat = codePattern
-	}
-	m := pat.FindStringSubmatch(body)
-	if m == nil {
+		if m := codePattern.FindStringSubmatch(body); m != nil {
+			if len(m) >= 2 {
+				return m[1]
+			}
+			return m[0]
+		}
 		return ""
 	}
-	// reOTP6 的组 1 是前缀分隔符、组 2 才是码；自定义正则通常组 1 是码。
-	if codePattern == nil && len(m) >= 3 {
-		return m[2]
-	}
-	if len(m) >= 2 {
-		return m[1]
-	}
-	return m[0]
+
+	// 6) 内置路径：打分制选最佳候选（对齐 codex-auto mailbox_client._extract_code_generic）。
+	//    历史 bug:旧版 FindStringSubmatch 取第一个 6 位数,邮件里有 CSS 颜色
+	//    (color:#202123)、多封历史邮件并存时,会取到旧码/干扰码 → wrong_email_otp_code。
+	//    改为:收集全部候选 → 剔除平凡码/日期 → 按「独立成词 + 软提示词上下文 + 位置」打分,
+	//    取得分最高者（阈值 3.0,即至少独立成词）。
+	return bestOTPByScore(body)
 }
 
 // indexOfHeaderEnd 返回 MIME header 结束位置（\r\n\r\n 之后），找不到返回 -1。
@@ -93,4 +94,164 @@ func index(s, sep string) int {
 		}
 	}
 	return -1
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 打分制候选筛选（对齐 codex-auto mailbox_client.py）
+// ═══════════════════════════════════════════════════════════════════════════
+
+// trivialCodes 平凡数字：占位符/示例/顺序/回文/全同,绝不可能是真实验证码。
+// 对齐 codex _TRIVIAL_CODES + _ALL_SAME_CODES。
+var trivialCodes = map[string]bool{
+	"000000": true, "111111": true, "222222": true, "333333": true, "444444": true,
+	"555555": true, "666666": true, "777777": true, "888888": true, "999999": true,
+	"123456": true, "234567": true, "345678": true, "456789": true, "567890": true,
+	"678901": true, "654321": true, "765432": true, "876543": true, "987654": true,
+	"121212": true, "112233": true, "123123": true,
+}
+
+// softCodeHints 软提示词:候选码附近(±80字符)出现则加分(跨语言)。
+// 对齐 codex _SOFT_CODE_HINTS + VERIFICATION_PATTERN 的核心词。
+var softCodeHints = []string{
+	"code", "verify", "verification", "otp",
+	"验证码", "驗證碼", "临时验证码", "認証", "検証", "確認",
+}
+
+// isTrivialCode 判断是否平凡码。
+func isTrivialCode(code string) bool { return trivialCodes[code] }
+
+// isDateLikeCode 剔除日期成分:YYYYMM(202408)/YYMMDD 这类不是验证码。
+func isDateLikeCode(code string) bool {
+	if len(code) != 6 {
+		return false
+	}
+	n := func(s string) int {
+		v := 0
+		for _, c := range s {
+			if c < '0' || c > '9' {
+				return -1
+			}
+			v = v*10 + int(c-'0')
+		}
+		return v
+	}
+	y, m := n(code[:4]), n(code[4:6])
+	if y >= 1900 && y <= 2099 && m >= 1 && m <= 12 { // YYYYMM
+		return true
+	}
+	mm, dd := n(code[2:4]), n(code[4:6])
+	if mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 { // YYMMDD
+		return true
+	}
+	return false
+}
+
+// otpCandidate 是一个 6 位数字候选及其在文本中的位置。
+type otpCandidate struct {
+	code  string
+	start int
+	end   int
+}
+
+// reCandidate6 匹配独立 6 位数字(前后非数字)。
+var reCandidate6 = regexp.MustCompile(`(^|[^\d])(\d{6})($|[^\d])`)
+
+// bestOTPByScore 收集全部 6 位候选,剔除平凡/日期,按打分选最佳。
+// 打分(对齐 codex _score):独立成词+3、软提示词上下文+1、位置靠后轻微加权。
+// 阈值 3.0(独立成词)才返回,否则空。
+func bestOTPByScore(text string) string {
+	if text == "" {
+		return ""
+	}
+	cands := map[string]otpCandidate{} // 按 code 去重,保留最早位置
+	for _, m := range reCandidate6.FindAllStringSubmatchIndex(text, -1) {
+		code := text[m[4]:m[5]]
+		if isDateLikeCode(code) {
+			continue // 日期成分永远不是验证码
+		}
+		start, end := m[4], m[5]
+		if old, ok := cands[code]; !ok || start < old.start {
+			cands[code] = otpCandidate{code: code, start: start, end: end}
+		}
+	}
+	if len(cands) == 0 {
+		return ""
+	}
+	best := ""
+	bestScore := 3.0 // 阈值:独立成词
+	for _, c := range cands {
+		score := scoreOTP(text, c)
+		if score > bestScore {
+			bestScore = score
+			best = c.code
+		}
+	}
+	return best
+}
+
+// scoreOTP 给一个候选打分。
+// 平凡码(000000/123456/顺序/回文)独立成词不直接给满分——必须附近有软提示词
+// (「code/验证码/認証」等)才采信,防把占位示例数字当真码;非平凡码独立成词即 +3。
+func scoreOTP(text string, c otpCandidate) float64 {
+	score := 0.0
+	isAlnum := func(b byte) bool {
+		return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+	}
+	beforeOK := c.start == 0 || !isAlnum(text[c.start-1])
+	afterOK := c.end >= len(text) || !isAlnum(text[c.end])
+	trivial := isTrivialCode(c.code)
+	// 软提示词上下文(±80 字符)。
+	lo := c.start - 80
+	if lo < 0 {
+		lo = 0
+	}
+	hi := c.end + 80
+	if hi > len(text) {
+		hi = len(text)
+	}
+	ctx := lowerASCII(text[lo:hi])
+	hasHint := false
+	for _, h := range softCodeHints {
+		if index(ctx, h) >= 0 {
+			hasHint = true
+			break
+		}
+	}
+
+	if beforeOK && afterOK {
+		if trivial && !hasHint {
+			// 平凡码且无上下文提示:不给独立成词分(视为占位/示例数字)。
+			score += 0.0
+		} else {
+			score += 3.0
+		}
+	} else if beforeOK || afterOK {
+		score += 1.5
+	}
+	if hasHint {
+		score += 1.0
+	}
+	// 位置靠后(正文)轻微加权。
+	if len(text) > 0 {
+		score += minF(1.0, float64(c.start)/float64(len(text)))
+	}
+	return score
+}
+
+// lowerASCII 转小写(仅 ASCII;中文提示词不受影响,直接子串匹配)。
+func lowerASCII(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 32
+		}
+	}
+	return string(b)
+}
+
+func minF(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }

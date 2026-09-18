@@ -45,9 +45,20 @@ type Result struct {
 	RenewsAt              *time.Time
 	PlusTrialEligible     bool   // free 且有 plus 促销 → 有试用资格（promotionEligible）
 	PlusTrialCampaignID   string // eligible_promo_campaigns.plus.id
-	HTTPStatus            int
+	// EligibleCampaigns 全部非 go 优惠套餐（对齐 codex eligible_campaigns）：
+	// 每条 {plan,id,promotion_type,title},title 即「免费试用 1 个月」这类人话文案。
+	EligibleCampaigns []Campaign
+	HTTPStatus        int
 	// NormalizedAccountType 归一化为 "free"|"plus"|""（仅这两者才应写库 accountType）。
 	NormalizedAccountType string
+}
+
+// Campaign 是一条可用优惠套餐（对齐 codex eligible_campaigns 元素）。
+type Campaign struct {
+	Plan          string `json:"plan"`           // 套餐 key(plus/team/...)
+	ID            string `json:"id"`             // campaign id(plus-1-month-free)
+	PromotionType string `json:"promotion_type"` // metadata.promotion_type
+	Title         string `json:"title"`          // metadata.title(「免费试用 1 个月」人话文案)
 }
 
 // Error 是套餐检查错误（对齐 PlanCheckError：code + httpStatus + retryable）。
@@ -219,7 +230,36 @@ func parseAccountsCheck(data map[string]any, claims tokenClaims) (*Result, error
 	account, _ := item["account"].(map[string]any)
 	entitlement, _ := item["entitlement"].(map[string]any)
 	campaigns, _ := item["eligible_promo_campaigns"].(map[string]any)
-	plusCampaign, _ := campaigns["plus"].(map[string]any)
+
+	// 遍历所有可用优惠套餐,排除 go 相关套餐（key=="go" 或 id 以 "go-" 开头或
+	// metadata.plan_name=="chatgptgoplan",三重判据对齐 codex）。每条记录
+	// {plan,id,promotion_type,title},title 供前端直接显示「免费试用 1 个月」。
+	eligibleCampaigns := make([]Campaign, 0, len(campaigns))
+	for planKey, rawCampaign := range campaigns {
+		rc, _ := rawCampaign.(map[string]any)
+		if rc == nil {
+			continue
+		}
+		campaignID := strings.TrimSpace(strOf(rc, "id"))
+		normKey := strings.ToLower(planKey)
+		normID := strings.ToLower(campaignID)
+		metadata, _ := rc["metadata"].(map[string]any)
+		planName := strings.ToLower(strOf(metadata, "plan_name"))
+		if normKey == "go" || strings.HasPrefix(normID, "go-") || planName == "chatgptgoplan" {
+			continue // go 套餐排除
+		}
+		eligibleCampaigns = append(eligibleCampaigns, Campaign{
+			Plan:          planKey,
+			ID:            campaignID,
+			PromotionType: strOf(metadata, "promotion_type"),
+			Title:         strOf(metadata, "title"),
+		})
+	}
+	var plusCampaign map[string]any
+	if len(eligibleCampaigns) > 0 {
+		// 用第一条非 go campaign 的 id 作代表(对齐 codex first_campaign_id)。
+		plusCampaign = map[string]any{"id": eligibleCampaigns[0].ID}
+	}
 
 	// plan_type：account.plan_type 优先，退回 JWT claim。
 	rawPlanType := strOf(account, "plan_type")
@@ -260,8 +300,9 @@ func parseAccountsCheck(data map[string]any, claims tokenClaims) (*Result, error
 		HasActiveSubscription: hasActive,
 		ExpiresAt:             parseISOTime(strOf(entitlement, "expires_at")),
 		RenewsAt:              parseISOTime(strOf(entitlement, "renews_at")),
-		PlusTrialEligible:     isFree && plusCampaign != nil,
+		PlusTrialEligible:     isFree && len(eligibleCampaigns) > 0,
 		PlusTrialCampaignID:   campaignID,
+		EligibleCampaigns:     eligibleCampaigns,
 		NormalizedAccountType: normalized,
 	}, nil
 }

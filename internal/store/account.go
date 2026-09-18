@@ -265,6 +265,8 @@ type PlanResultUpdate struct {
 	RenewsAt              *time.Time
 	PromotionEligible     *bool
 	PromotionCampaignID   *string
+	// PromotionCampaigns 全部非 go 优惠套餐（含 title 人话文案），对齐 codex promotionCampaigns。
+	PromotionCampaigns []model.PromotionCampaign
 	// AccountType 归一化后的 "free"|"plus"（空串=不更新，对齐 codex 仅 free/plus 才写）。
 	AccountType string
 }

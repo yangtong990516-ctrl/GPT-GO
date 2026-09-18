@@ -143,7 +143,16 @@ func (p *MailcodeProvider) WaitForOTP(ctx context.Context, emailAddr string, tim
 			continue
 		}
 		if code != "" {
-			return code, nil
+			// 防抖确认:立刻再抓一次(不 sleep pollInterval),两次一致才返回,
+			// 避免页面刷新瞬间/解析闪变拿到半成品。确认失败则继续轮询。
+			if confirm, _, cerr := p.fetchOnce(ctx, issuedAfterUnix); cerr == nil && confirm == code {
+				return code, nil
+			}
+			// 二次确认不一致:短暂等待后重新轮询(页面可能正在更新)。
+			if !sleepOrDone(ctx, p.pollInterval) {
+				return "", NewError("验证码等待被取消", false, "cancelled", ctx.Err())
+			}
+			continue
 		}
 		// 本轮无新码：等一个轮询间隔再试。
 		if !sleepOrDone(ctx, p.pollInterval) {

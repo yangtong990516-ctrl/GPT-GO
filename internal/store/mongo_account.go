@@ -467,6 +467,12 @@ func planResultSet(r PlanResultUpdate) bson.M {
 		"promotionEligible":     r.PromotionEligible,
 		"promotionCampaignId":   r.PromotionCampaignID,
 	}
+	// 优惠套餐详情(含 title 人话文案):有则写,无则清空(对齐 codex promotionCampaigns)。
+	if len(r.PromotionCampaigns) > 0 {
+		set["promotionCampaigns"] = r.PromotionCampaigns
+	} else {
+		set["promotionCampaigns"] = nil
+	}
 	// 仅归一化为 free/plus 才写 accountType(对齐 codex normalized_plan)。
 	if r.AccountType == "free" || r.AccountType == "plus" {
 		set["accountType"] = r.AccountType

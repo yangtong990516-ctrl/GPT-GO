@@ -24,6 +24,7 @@ import (
 	"gpt-go/internal/service/signup"
 	"gpt-go/internal/service/tokenheal"
 	"gpt-go/internal/service/signup/core"
+	"gpt-go/internal/model"
 	"gpt-go/internal/service/signup/plan"
 	"gpt-go/internal/store"
 )
@@ -294,6 +295,7 @@ func (s *Service) checkOne(ctx context.Context, accountID, proxyID string) Item 
 		RenewsAt:              res.RenewsAt,
 		PromotionEligible:     boolPtr(res.PlusTrialEligible),
 		PromotionCampaignID:   strPtrOrNil2(res.PlusTrialCampaignID),
+		PromotionCampaigns:    toModelCampaigns(res.EligibleCampaigns),
 		AccountType:           res.NormalizedAccountType,
 	}
 	if err := s.accounts.StoreCombinedResult(ctx, accountID, upd); err != nil {
@@ -345,6 +347,23 @@ func strPtrOrNil2(s string) *string {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// toModelCampaigns 把 plan.Campaign 转 model.PromotionCampaign（落库含 title 人话文案）。
+func toModelCampaigns(cs []plan.Campaign) []model.PromotionCampaign {
+	if len(cs) == 0 {
+		return nil
+	}
+	out := make([]model.PromotionCampaign, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, model.PromotionCampaign{
+			Plan:          c.Plan,
+			ID:            c.ID,
+			PromotionType: c.PromotionType,
+			Title:         c.Title,
+		})
+	}
+	return out
+}
 
 // timezoneOffsetForCountry 对齐 codex timezone_offset_for_country：
 // JavaScript Date.getTimezoneOffset 语义（UTC - local，单位分钟）。
